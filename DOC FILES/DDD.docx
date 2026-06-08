@@ -1,0 +1,719 @@
+# DATABASE DESIGN DOCUMENT (DDD)
+
+# Secure Container Supply Chain Security Platform
+
+Version: 1.0
+
+Database: PostgreSQL 17
+
+ORM: Prisma
+
+Status: Design Approved
+
+---
+
+# 1. Database Overview
+
+The Secure Container Supply Chain Security Platform stores:
+
+* User accounts
+* Roles and permissions
+* Container images
+* Vulnerability scans
+* SBOMs
+* Security findings
+* Compliance reports
+* Notifications
+* Audit logs
+
+Database Type:
+
+Relational Database
+
+Technology:
+
+PostgreSQL
+
+Design Principles:
+
+* Third Normal Form (3NF)
+* Strong Referential Integrity
+* ACID Compliance
+* Auditability
+* Scalability
+
+---
+
+# 2. Entity Relationship Overview
+
+Users
+↓
+Images
+↓
+Scans
+↓
+Vulnerabilities
+
+Images
+↓
+SBOMs
+
+Users
+↓
+Reports
+
+Users
+↓
+Notifications
+
+Users
+↓
+Audit Logs
+
+---
+
+# 3. User Management Module
+
+## Table: users
+
+Purpose:
+
+Store platform users.
+
+Columns:
+
+id UUID PK
+
+email VARCHAR(255) UNIQUE NOT NULL
+
+password_hash TEXT NOT NULL
+
+first_name VARCHAR(100)
+
+last_name VARCHAR(100)
+
+role_id UUID FK
+
+status VARCHAR(20)
+
+last_login TIMESTAMP
+
+created_at TIMESTAMP
+
+updated_at TIMESTAMP
+
+Indexes:
+
+UNIQUE(email)
+
+INDEX(role_id)
+
+Business Rules:
+
+* Email must be unique.
+* Password stored using bcrypt.
+
+---
+
+## Table: roles
+
+Purpose:
+
+Store RBAC roles.
+
+Columns:
+
+id UUID PK
+
+name VARCHAR(50)
+
+description TEXT
+
+created_at TIMESTAMP
+
+Sample Values:
+
+* Admin
+* Security Analyst
+* Developer
+* Viewer
+
+---
+
+## Table: permissions
+
+Purpose:
+
+Permission catalog.
+
+Columns:
+
+id UUID PK
+
+name VARCHAR(100)
+
+description TEXT
+
+created_at TIMESTAMP
+
+Examples:
+
+create_scan
+
+delete_scan
+
+generate_report
+
+manage_users
+
+---
+
+## Table: role_permissions
+
+Purpose:
+
+Many-to-many mapping.
+
+Columns:
+
+id UUID PK
+
+role_id UUID FK
+
+permission_id UUID FK
+
+---
+
+# 4. Image Registry Module
+
+## Table: images
+
+Purpose:
+
+Store container images.
+
+Columns:
+
+id UUID PK
+
+name VARCHAR(255)
+
+tag VARCHAR(100)
+
+digest VARCHAR(255)
+
+registry VARCHAR(255)
+
+repository VARCHAR(255)
+
+image_size BIGINT
+
+status VARCHAR(50)
+
+created_by UUID FK
+
+created_at TIMESTAMP
+
+updated_at TIMESTAMP
+
+Example:
+
+nginx:latest
+
+alpine:3.20
+
+Indexes:
+
+INDEX(name)
+
+INDEX(digest)
+
+INDEX(created_by)
+
+---
+
+# 5. Scan Management Module
+
+## Table: scans
+
+Purpose:
+
+Track scan executions.
+
+Columns:
+
+id UUID PK
+
+image_id UUID FK
+
+scan_type VARCHAR(50)
+
+status VARCHAR(50)
+
+started_at TIMESTAMP
+
+completed_at TIMESTAMP
+
+duration_seconds INTEGER
+
+initiated_by UUID FK
+
+created_at TIMESTAMP
+
+Scan Types:
+
+* Vulnerability
+* SBOM
+* Compliance
+
+Statuses:
+
+* Pending
+* Running
+* Completed
+* Failed
+
+Indexes:
+
+INDEX(image_id)
+
+INDEX(status)
+
+INDEX(started_at)
+
+---
+
+# 6. Vulnerability Module
+
+## Table: vulnerabilities
+
+Purpose:
+
+Store discovered vulnerabilities.
+
+Columns:
+
+id UUID PK
+
+scan_id UUID FK
+
+cve_id VARCHAR(100)
+
+severity VARCHAR(20)
+
+cvss_score DECIMAL(4,2)
+
+package_name VARCHAR(255)
+
+installed_version VARCHAR(100)
+
+fixed_version VARCHAR(100)
+
+description TEXT
+
+published_date TIMESTAMP
+
+created_at TIMESTAMP
+
+Severity Values:
+
+* Critical
+* High
+* Medium
+* Low
+* Informational
+
+Indexes:
+
+INDEX(cve_id)
+
+INDEX(severity)
+
+INDEX(package_name)
+
+INDEX(scan_id)
+
+---
+
+# 7. SBOM Module
+
+## Table: sboms
+
+Purpose:
+
+Store generated SBOM metadata.
+
+Columns:
+
+id UUID PK
+
+image_id UUID FK
+
+format VARCHAR(50)
+
+generator VARCHAR(50)
+
+storage_path TEXT
+
+generated_at TIMESTAMP
+
+created_at TIMESTAMP
+
+Formats:
+
+* CycloneDX
+* SPDX
+
+Generators:
+
+* Syft
+* Trivy
+
+Indexes:
+
+INDEX(image_id)
+
+INDEX(format)
+
+---
+
+# 8. Compliance Module
+
+## Table: compliance_reports
+
+Purpose:
+
+Store compliance assessment results.
+
+Columns:
+
+id UUID PK
+
+scan_id UUID FK
+
+framework VARCHAR(100)
+
+score DECIMAL(5,2)
+
+status VARCHAR(50)
+
+report_path TEXT
+
+generated_at TIMESTAMP
+
+Frameworks:
+
+* CIS Docker Benchmark
+* NIST
+* OWASP
+* ISO27001
+
+Indexes:
+
+INDEX(framework)
+
+INDEX(status)
+
+---
+
+# 9. Reporting Module
+
+## Table: reports
+
+Purpose:
+
+Store generated reports.
+
+Columns:
+
+id UUID PK
+
+report_type VARCHAR(50)
+
+generated_by UUID FK
+
+file_path TEXT
+
+generated_at TIMESTAMP
+
+created_at TIMESTAMP
+
+Report Types:
+
+* Vulnerability
+* SBOM
+* Compliance
+* Executive
+
+Indexes:
+
+INDEX(report_type)
+
+INDEX(generated_by)
+
+---
+
+# 10. Notification Module
+
+## Table: notifications
+
+Purpose:
+
+Store user notifications.
+
+Columns:
+
+id UUID PK
+
+user_id UUID FK
+
+title VARCHAR(255)
+
+message TEXT
+
+type VARCHAR(50)
+
+is_read BOOLEAN
+
+created_at TIMESTAMP
+
+Types:
+
+* Critical Alert
+* Scan Complete
+* Report Generated
+
+Indexes:
+
+INDEX(user_id)
+
+INDEX(is_read)
+
+---
+
+# 11. Audit Module
+
+## Table: audit_logs
+
+Purpose:
+
+Track all critical actions.
+
+Columns:
+
+id UUID PK
+
+user_id UUID FK
+
+action VARCHAR(255)
+
+resource_type VARCHAR(100)
+
+resource_id UUID
+
+ip_address VARCHAR(100)
+
+user_agent TEXT
+
+created_at TIMESTAMP
+
+Examples:
+
+Login
+
+Logout
+
+Create Scan
+
+Delete Report
+
+Generate SBOM
+
+Indexes:
+
+INDEX(user_id)
+
+INDEX(resource_type)
+
+INDEX(created_at)
+
+---
+
+# 12. Queue Tracking Module
+
+## Table: jobs
+
+Purpose:
+
+Track asynchronous jobs.
+
+Columns:
+
+id UUID PK
+
+job_type VARCHAR(50)
+
+status VARCHAR(50)
+
+payload JSONB
+
+attempts INTEGER
+
+created_at TIMESTAMP
+
+updated_at TIMESTAMP
+
+Job Types:
+
+* Scan Job
+* SBOM Job
+* Report Job
+
+Statuses:
+
+* Pending
+* Running
+* Completed
+* Failed
+
+Indexes:
+
+INDEX(job_type)
+
+INDEX(status)
+
+---
+
+# 13. Storage Strategy
+
+Database Stores:
+
+* Metadata
+* Scan Results
+* References
+
+Object Storage Stores:
+
+* SBOM Files
+* Reports
+* Exported Data
+
+Suggested Storage:
+
+MinIO
+
+Future:
+
+AWS S3
+
+---
+
+# 14. Data Retention Policy
+
+Audit Logs
+
+Retain 365 Days
+
+Notifications
+
+Retain 90 Days
+
+Scan Results
+
+Retain Indefinitely
+
+Reports
+
+Retain 180 Days
+
+SBOM Files
+
+Retain Indefinitely
+
+---
+
+# 15. Backup Strategy
+
+Database Backup
+
+Daily Full Backup
+
+Transaction Logs
+
+Every 15 Minutes
+
+Backup Retention
+
+30 Days
+
+Recovery Objective (RPO)
+
+15 Minutes
+
+Recovery Time Objective (RTO)
+
+1 Hour
+
+---
+
+# 16. Performance Optimization
+
+Connection Pooling
+
+PgBouncer
+
+Query Optimization
+
+Indexes
+
+Partitioning
+
+Audit Logs
+
+Materialized Views
+
+Dashboard Analytics
+
+Caching
+
+Redis
+
+---
+
+# 17. Future Database Enhancements
+
+Multi-Tenant Support
+
+Tenant Table
+
+Tenant Isolation
+
+Soft Deletes
+
+Data Versioning
+
+Historical Scan Snapshots
+
+Advanced Analytics Warehouse
+
+---
+
+# 18. Prisma Entity Order
+
+1. User
+2. Role
+3. Permission
+4. RolePermission
+5. Image
+6. Scan
+7. Vulnerability
+8. SBOM
+9. ComplianceReport
+10. Report
+11. Notification
+12. AuditLog
+13. Job
+
+---
+
+# End of Database Design Document
