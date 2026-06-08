@@ -1,0 +1,416 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  ADMIN
+  DEVELOPER
+  SECURITY_ANALYST
+  VIEWER
+}
+
+enum PermissionName {
+  USER_CREATE
+  USER_READ
+  USER_UPDATE
+  USER_DELETE
+  ROLE_CREATE
+  ROLE_READ
+  ROLE_UPDATE
+  ROLE_DELETE
+  IMAGE_REGISTER
+  IMAGE_READ
+  IMAGE_DELETE
+  SCAN_CREATE
+  SCAN_READ
+  SCAN_CANCEL
+  VULNERABILITY_READ
+  VULNERABILITY_EXPORT
+  SBOM_CREATE
+  SBOM_READ
+  SBOM_DELETE
+  REPORT_CREATE
+  REPORT_READ
+  REPORT_DOWNLOAD
+  NOTIFICATION_READ
+  NOTIFICATION_MANAGE
+  AUDIT_LOG_READ
+  AUDIT_LOG_EXPORT
+  JOB_READ
+  JOB_CANCEL
+}
+
+enum ScanStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  TIMEOUT
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  UNKNOWN
+}
+
+enum SBOMFormat {
+  SPDX
+  CYCLONEDX
+}
+
+enum ReportFormat {
+  PDF
+  CSV
+}
+
+enum ReportStatus {
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+enum NotificationType {
+  SCAN_COMPLETED
+  VULNERABILITY_FOUND
+  REPORT_READY
+  SYSTEM_ALERT
+}
+
+enum NotificationChannel {
+  EMAIL
+  WEBHOOK
+}
+
+enum JobType {
+  SCAN_IMAGE
+  GENERATE_SBOM
+  GENERATE_REPORT
+  SEND_NOTIFICATION
+}
+
+enum JobStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+  DELAYED
+  PAUSED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  username     String    @unique
+  passwordHash String
+  isActive     Boolean   @default(true)
+  isVerified   Boolean   @default(false)
+  lastLoginAt  DateTime?
+  refreshToken String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  images        Image[]
+  scans         Scan[]
+  sboms         SBOM[]
+  reports       Report[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  sessions      Session[]
+
+  @@index([email])
+  @@index([username])
+  @@index([roleId])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        RoleName @unique
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@index([name])
+  @@map("roles")
+}
+
+model Permission {
+  id          String         @id @default(uuid())
+  name        PermissionName @unique
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@index([name])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Image {
+  id            String    @id @default(uuid())
+  name          String
+  tag           String
+  digest        String?
+  registry      String    @default("docker.io")
+  repository    String
+  architecture  String?
+  os            String?
+  size          BigInt?
+  mediaType     String?
+  manifest      Json?
+  config        Json?
+  labels        Json?
+  isSigned      Boolean   @default(false)
+  signatureInfo Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  scans   Scan[]
+  sboms   SBOM[]
+  reports Report[]
+
+  @@unique([name, tag, registry, repository, deletedAt])
+  @@index([name])
+  @@index([repository])
+  @@index([userId])
+  @@index([deletedAt])
+  @@map("images")
+}
+
+model Scan {
+  id           String     @id @default(uuid())
+  imageRef     String
+  scanType     String     @default("trivy")
+  status       ScanStatus @default(PENDING)
+  progress     Int        @default(0)
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  metadata     Json?
+  retryCount   Int        @default(0)
+  maxRetries   Int        @default(3)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  imageId String
+  image   Image  @relation(fields: [imageId], references: [id])
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  vulnerabilities Vulnerability[]
+  reports         Report[]
+  jobId           String?         @unique
+  job             Job?            @relation("ScanJob", fields: [jobId], references: [id])
+
+  @@index([status])
+  @@index([imageId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("scans")
+}
+
+model Vulnerability {
+  id               String    @id @default(uuid())
+  vulnerabilityId  String
+  packageName      String
+  packageVersion   String
+  packageType      String?
+  severity         Severity  @default(UNKNOWN)
+  cvssScore        Float?
+  cvssVector       String?
+  cweIds           Json?
+  title            String?
+  description      String?
+  fixedVersion     String?
+  publishedDate    DateTime?
+  lastModifiedDate DateTime?
+  source           String    @default("trivy")
+  referenceUrls    Json?
+  exploitAvailable Boolean?
+  epssScore        Float?
+  layerInfo        Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  scanId String
+  scan   Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([vulnerabilityId])
+  @@index([severity])
+  @@index([scanId])
+  @@index([packageName])
+  @@index([vulnerabilityId, scanId])
+  @@map("vulnerabilities")
+}
+
+model SBOM {
+  id           String     @id @default(uuid())
+  format       SBOMFormat
+  version      String
+  specVersion  String?
+  content      Json
+  rawContent   String?
+  packageCount Int?
+  fileHash     String?
+  filePath     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  imageId String
+  image   Image  @relation(fields: [imageId], references: [id])
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  @@index([format])
+  @@index([imageId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("sboms")
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  title       String
+  format      ReportFormat
+  status      ReportStatus @default(GENERATING)
+  parameters  Json?
+  filePath    String?
+  fileSize    Int?
+  generatedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  scanId  String?
+  scan    Scan?   @relation(fields: [scanId], references: [id])
+  imageId String?
+  image   Image?  @relation(fields: [imageId], references: [id])
+
+  @@index([format])
+  @@index([status])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("reports")
+}
+
+model Notification {
+  id           String              @id @default(uuid())
+  type         NotificationType
+  channel      NotificationChannel @default(EMAIL)
+  subject      String
+  body         String
+  metadata     Json?
+  isRead       Boolean             @default(false)
+  sentAt       DateTime?
+  errorMessage String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([type])
+  @@index([sentAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  entity      String
+  entityId    String?
+  description String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([action])
+  @@index([entity])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action, entity])
+  @@map("audit_logs")
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  type        JobType
+  status      JobStatus @default(PENDING)
+  payload     Json
+  result      Json?
+  error       String?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  priority    Int       @default(0)
+  delay       Int       @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  scan Scan? @relation("ScanJob")
+
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("jobs")
+}
