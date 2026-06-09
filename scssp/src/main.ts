@@ -24,6 +24,7 @@ import { sbomRoutes } from '@modules/sbom/interfaces/sbom.routes';
 import { reportRoutes } from '@modules/report/interfaces/report.routes';
 import { notificationRoutes } from '@modules/notification/interfaces/notification.routes';
 import { auditRoutes } from '@modules/audit/interfaces/audit.routes';
+import { dashboardRoutes } from '@modules/dashboard/interfaces/dashboard.routes';
 
 const logger = getLogger();
 
@@ -138,6 +139,7 @@ export async function buildApp() {
     api.register(reportRoutes, { prefix: '/reports' });
     api.register(notificationRoutes, { prefix: '/notifications' });
     api.register(auditRoutes, { prefix: '/audit-logs' });
+    api.register(dashboardRoutes, { prefix: '/dashboard' });
   }, { prefix: apiPrefix });
 
   return app;

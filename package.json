@@ -1,0 +1,21 @@
+{
+  "name": "fortifyci",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd scssp && npm run dev",
+    "dev:frontend": "cd frontend/scssp && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build:backend": "cd scssp && npm run build",
+    "build:frontend": "cd frontend/scssp && npm run build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:rebuild": "docker compose up -d --build",
+    "docker:seed": "docker exec fortifyci-backend npx tsx prisma/seed.ts",
+    "docker:ps": "docker compose ps"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

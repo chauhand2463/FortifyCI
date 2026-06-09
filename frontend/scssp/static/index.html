@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCSSP — Secure Container Supply Chain Security Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app-auth" style="display:flex;align-items:center;justify-content:center;min-height:100vh">
+  <div style="width:400px;padding:40px">
+    <!-- Login -->
+    <div id="login-page" class="auth-page">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+        <div style="width:40px;height:40px;background:var(--primary);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px">S</div>
+        <div><div style="font-size:18px;font-weight:600;color:#fff">SCSSP</div><div style="font-size:12px;color:var(--muted)">Container Supply Chain Security</div></div>
+      </div>
+      <form id="login-form">
+        <div style="margin-bottom:20px">
+          <label style="display:block;font-size:13px;font-weight:500;color:#fff;margin-bottom:6px">Email</label>
+          <input type="email" id="login-email" class="input" placeholder="you@company.com" value="admin@scssp.io">
+        </div>
+        <div style="margin-bottom:24px">
+          <label style="display:block;font-size:13px;font-weight:500;color:#fff;margin-bottom:6px">Password</label>
+          <input type="password" id="login-password" class="input" placeholder="••••••••" value="admin123">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;height:38px;font-size:14px">Sign in</button>
+        <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted)">
+          <a href="#" class="auth-toggle" data-page="register" style="color:var(--primary)">Create account</a>
+          <span style="margin:0 8px">·</span>
+          <a href="#" class="auth-toggle" data-page="forgot" style="color:var(--primary)">Forgot password</a>
+        </div>
+        <div style="text-align:center;margin-top:12px;font-size:11px;color:rgba(255,255,255,0.2)">Demo: admin@scssp.io / admin123</div>
+      </form>
+    </div>
+    <!-- Register -->
+    <div id="register-page" class="auth-page" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+        <div style="width:40px;height:40px;background:var(--primary);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px">S</div>
+        <div><div style="font-size:18px;font-weight:600;color:#fff">Create Account</div><div style="font-size:12px;color:var(--muted)">Join SCSSP</div></div>
+      </div>
+      <form id="register-form">
+        <div style="margin-bottom:16px"><label style="display:block;font-size:13px;font-weight:500;color:#fff;margin-bottom:6px">Full Name</label><input type="text" id="register-name" class="input" placeholder="Jane Doe"></div>
+        <div style="margin-bottom:16px"><label style="display:block;font-size:13px;font-weight:500;color:#fff;margin-bottom:6px">Email</label><input type="email" id="register-email" class="input" placeholder="you@company.com"></div>
+        <div style="margin-bottom:24px"><label style="display:block;font-size:13px;font-weight:500;color:#fff;margin-bottom:6px">Password</label><input type="password" id="register-password" class="input" placeholder="••••••••"></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;height:38px;font-size:14px">Create Account</button>
+        <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted)">Already have an account? <a href="#" class="auth-toggle" data-page="login" style="color:var(--primary)">Sign in</a></div>
+      </form>
+    </div>
+    <!-- Forgot Password -->
+    <div id="forgot-page" class="auth-page" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+        <div style="width:40px;height:40px;background:var(--primary);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px">S</div>
+        <div><div style="font-size:18px;font-weight:600;color:#fff">Reset Password</div><div style="font-size:12px;color:var(--muted)">We'll send you a reset link</div></div>
+      </div>
+      <form id="forgot-form">
+        <div style="margin-bottom:24px"><label style="display:block;font-size:13px;font-weight:500;color:#fff;margin-bottom:6px">Email</label><input type="email" id="forgot-email" class="input" placeholder="you@company.com"></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;height:38px;font-size:14px">Send Reset Link</button>
+        <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted)"><a href="#" class="auth-toggle" data-page="login" style="color:var(--primary)">Back to sign in</a></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="app-main" style="display:none;height:100vh;overflow:hidden">
+  <div class="app-shell">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">S</div>
+        <span>SCSSP</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a data-page="dashboard" class="active"><span class="nav-icon">◉</span> Dashboard</a>
+        <a data-page="images"><span class="nav-icon">⊞</span> Images</a>
+        <a data-page="scans"><span class="nav-icon">⟳</span> Scans</a>
+        <a data-page="vulns"><span class="nav-icon">⚠</span> Vulnerabilities</a>
+        <a data-page="sbom"><span class="nav-icon">☰</span> SBOM</a>
+        <a data-page="reports"><span class="nav-icon">📄</span> Reports</a>
+        <a data-page="notifications"><span class="nav-icon">🔔</span> Notifications</a>
+        <a data-page="settings"><span class="nav-icon">⚙</span> Settings</a>
+      </nav>
+    </aside>
+    <!-- Main -->
+    <div class="main-area">
+      <header class="topnav">
+        <div class="search-bar" id="search-trigger"><span>🔍</span><span style="color:var(--muted)">Search images, CVEs, scans...</span><kbd>⌘K</kbd></div>
+        <div class="spacer"></div>
+        <div class="nav-actions">
+          <button onclick="navigate('notifications');renderNotifications()">🔔<span id="notif-badge" class="badge-dot"></span></button>
+        </div>
+        <div class="user-chip">
+          <div class="user-info"><div class="name" id="user-name">Sarah Chen</div><div class="role" id="user-role">Security Lead</div></div>
+          <div class="avatar" id="user-avatar">SC</div>
+        </div>
+      </header>
+      <div class="content">
+        <div id="breadcrumbs" style="display:flex;align-items:center;font-size:12px;margin-bottom:16px">SCSSP / Dashboard</div>
+
+        <!-- Dashboard Page -->
+        <div id="page-dashboard" class="page active" data-title="Dashboard">
+          <div class="page-header"><h1>Dashboard</h1><p>Security overview across your container fleet</p></div>
+          <div class="grid-6" id="stat-grid"></div>
+          <div class="grid-2 mt-6">
+            <div class="card">
+              <div class="card-header"><h3>Vulnerability Severity</h3></div>
+              <div class="card-body" style="display:flex;align-items:center;gap:32px;padding:24px">
+                <div id="sev-chart" class="chart-container" style="width:auto;height:200px;flex-shrink:0"></div>
+                <div id="sev-legend" style="flex:1;display:flex;flex-direction:column;gap:12px"></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h3>Scan & Vulnerability Trend</h3></div>
+              <div class="card-body p-0 p-3"><div id="area-chart" class="chart-container tall"></div></div>
+            </div>
+          </div>
+          <div class="card mt-4">
+            <div class="card-header"><h3>Monthly Vulnerability Breakdown</h3></div>
+            <div class="card-body p-0 p-3"><div id="bar-chart" class="chart-container tall"></div></div>
+          </div>
+          <div class="grid-2 mt-4">
+            <div class="card">
+              <div class="card-header"><h3>Recent Scans</h3></div>
+              <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Image</th><th>Severity</th><th>Findings</th><th>Duration</th></tr></thead><tbody id="recent-scans"></tbody></table></div></div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h3>Images at Risk</h3></div>
+              <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Image</th><th>Vulnerabilities</th><th>Status</th></tr></thead><tbody id="images-risk"></tbody></table></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Images Page -->
+        <div id="page-images" class="page" data-title="Images">
+          <div class="page-header"><h1>Container Images</h1><p><span id="img-count">0</span> images in your registry</p></div>
+          <div class="card">
+            <div class="card-header"><h3>All Images</h3><div><input type="text" class="input" id="img-search" placeholder="Search images..." oninput="renderImages()" style="width:240px"></div></div>
+            <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Image</th><th>Size</th><th>OS</th><th>Layers</th><th>Vulnerabilities</th><th>Status</th><th>Last Scan</th></tr></thead><tbody id="img-table"></tbody></table></div></div>
+          </div>
+        </div>
+
+        <!-- Scans Page -->
+        <div id="page-scans" class="page" data-title="Scans">
+          <div class="page-header"><h1>Scans</h1><p>Scan history and results</p></div>
+          <div class="card">
+            <div class="card-header"><h3>Scan History</h3><button class="btn btn-primary btn-sm" onclick="toast('New scan initiated','success')">+ New Scan</button></div>
+            <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Image</th><th>Severity</th><th>Findings</th><th>Duration</th><th>Scanner</th><th>Date</th></tr></thead><tbody id="scan-table"></tbody></table></div></div>
+          </div>
+        </div>
+
+        <!-- Vulnerabilities Page -->
+        <div id="page-vulns" class="page" data-title="Vulnerabilities">
+          <div class="page-header"><h1>Vulnerabilities</h1><p><span id="vuln-count">0</span> CVEs detected</p></div>
+          <div class="card">
+            <div class="card-header">
+              <div class="page-tabs" id="vuln-tabs">
+                <button class="page-tab active" data-sev="all" data-tab-handler="renderVulns">All</button>
+                <button class="page-tab" data-sev="critical" data-tab-handler="renderVulns">Critical</button>
+                <button class="page-tab" data-sev="high" data-tab-handler="renderVulns">High</button>
+                <button class="page-tab" data-sev="medium" data-tab-handler="renderVulns">Medium</button>
+              </div>
+              <input type="text" class="input" id="vuln-search" placeholder="Search CVE ID, package..." oninput="renderVulns()" style="width:240px">
+            </div>
+            <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>CVE / Description</th><th>Package</th><th>Severity</th><th>CVSS</th><th>Status / Fix</th><th>Exploit</th><th>Image</th></tr></thead><tbody id="vuln-table"></tbody></table></div></div>
+          </div>
+        </div>
+
+        <!-- SBOM Page -->
+        <div id="page-sbom" class="page" data-title="SBOM">
+          <div class="page-header"><h1>SBOM Explorer</h1><p>Software Bill of Materials</p></div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <label style="font-size:13px;color:var(--muted)">Select Image:</label>
+            <select id="sbom-img-select" class="input" style="width:auto;min-width:200px;cursor:pointer"></select>
+          </div>
+          <div class="page-tabs" style="margin-bottom:16px">
+            <button class="page-tab active" onclick="$$(this.parentElement).forEach(t=>t.classList.remove('active'));this.classList.add('active');$('#tab-pkgs').style.display='block';$('#tab-lic').style.display='none';$('#tab-deps').style.display='none'">Packages</button>
+            <button class="page-tab" onclick="$$(this.parentElement).forEach(t=>t.classList.remove('active'));this.classList.add('active');$('#tab-pkgs').style.display='none';$('#tab-lic').style.display='block';$('#tab-deps').style.display='none'">Licenses</button>
+            <button class="page-tab" onclick="$$(this.parentElement).forEach(t=>t.classList.remove('active'));this.classList.add('active');$('#tab-pkgs').style.display='none';$('#tab-lic').style.display='none';$('#tab-deps').style.display='block'">Dependency Tree</button>
+          </div>
+          <div id="tab-pkgs">
+            <div class="card"><div class="card-header"><h3>Packages</h3><span class="badge badge-outline">10 components</span></div><div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Package / PURL</th><th>Version</th><th>License</th><th>Supplier</th><th>Type</th></tr></thead><tbody id="sbom-pkgs"></tbody></table></div></div></div>
+          </div>
+          <div id="tab-lic" style="display:none">
+            <div class="card"><div class="card-header"><h3>License Summary</h3></div><div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>License</th><th>Count</th><th>Details</th></tr></thead><tbody id="sbom-licenses"></tbody></table></div></div></div>
+          </div>
+          <div id="tab-deps" style="display:none">
+            <div class="card"><div class="card-header"><h3>Dependency Tree</h3></div><div class="card-body"><div class="dep-tree" id="sbom-deps"></div></div></div>
+          </div>
+        </div>
+
+        <!-- Reports Page -->
+        <div id="page-reports" class="page" data-title="Reports">
+          <div class="page-header"><h1>Reports</h1><p>Generate and manage security reports</p></div>
+          <div class="card mb-4">
+            <div class="card-header"><h3>Generate New Report</h3></div>
+            <div class="card-body">
+              <div style="display:flex;gap:12px;align-items:flex-end">
+                <div style="flex:1"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Report Title</label><input type="text" class="input" id="report-title" placeholder="e.g. Monthly Security Summary"></div>
+                <div style="width:200px"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Type</label><select class="input" id="report-type"><option value="summary">Summary</option><option value="comprehensive">Comprehensive</option><option value="compliance">Compliance</option><option value="sbom">SBOM Export</option></select></div>
+                <button class="btn btn-primary" onclick="generateReport()">Generate</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3>Report History</h3></div>
+            <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Title</th><th>Status</th><th>Pages</th><th>Created By</th><th>Date</th><th>Actions</th></tr></thead><tbody id="report-table"></tbody></table></div></div>
+          </div>
+        </div>
+
+        <!-- Notifications Page -->
+        <div id="page-notifications" class="page" data-title="Notifications">
+          <div class="page-header"><h1>Notifications</h1><p>Security alerts and system notifications</p></div>
+          <div class="card">
+            <div class="card-header">
+              <div class="page-tabs" id="notif-tabs">
+                <button class="page-tab active" data-tab="unread" data-tab-handler="renderNotifications">Unread</button>
+                <button class="page-tab" data-tab="all" data-tab-handler="renderNotifications">All</button>
+              </div>
+            </div>
+            <div id="notif-list"></div>
+          </div>
+        </div>
+
+        <!-- Settings Page -->
+        <div id="page-settings" class="page" data-title="Settings">
+          <div class="page-header"><h1>Settings</h1><p>Manage your account and security configuration</p></div>
+          <div class="page-tabs" style="margin-bottom:16px">
+            <button class="page-tab active" onclick="showSettingsTab('profile')">Profile</button>
+            <button class="page-tab" onclick="showSettingsTab('security')">Security</button>
+            <button class="page-tab" onclick="showSettingsTab('keys')">API Keys</button>
+            <button class="page-tab" onclick="showSettingsTab('prefs')">Preferences</button>
+          </div>
+          <div id="sett-profile" class="settings-tab">
+            <div class="card">
+              <div class="card-header"><h3>Profile Information</h3></div>
+              <div class="card-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                  <div><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Full Name</label><input class="input" value="Sarah Chen"></div>
+                  <div><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Email</label><input class="input" value="sarah.chen@scssp.io"></div>
+                  <div><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Role</label><input class="input" value="Security Lead" disabled></div>
+                  <div><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Organization</label><input class="input" value="SCSSP Inc."></div>
+                </div>
+                <button class="btn btn-primary mt-4" onclick="toast('Profile updated successfully','success')">Save Changes</button>
+              </div>
+            </div>
+          </div>
+          <div id="sett-security" class="settings-tab" style="display:none">
+            <div class="card mb-4">
+              <div class="card-header"><h3>Change Password</h3></div>
+              <div class="card-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                  <div><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Current Password</label><input type="password" class="input" placeholder="••••••••"></div>
+                  <div><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">New Password</label><input type="password" class="input" placeholder="••••••••"></div>
+                </div>
+                <button class="btn btn-primary mt-4" onclick="toast('Password updated successfully','success')">Update Password</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h3>Two-Factor Authentication</h3></div>
+              <div class="card-body">
+                <div class="toggle-row"><div class="toggle-info"><div class="t-label">Authenticator App</div><div class="t-desc">Use an authenticator app to generate codes</div></div><button class="toggle-sw" onclick="this.classList.toggle('on')"></button></div>
+                <div class="toggle-row"><div class="toggle-info"><div class="t-label">SMS Recovery</div><div class="t-desc">Receive backup codes via SMS</div></div><button class="toggle-sw on" onclick="this.classList.toggle('on')"></button></div>
+              </div>
+            </div>
+          </div>
+          <div id="sett-keys" class="settings-tab" style="display:none">
+            <div class="card">
+              <div class="card-header"><h3>API Keys</h3><button class="btn btn-primary btn-sm" onclick="toast('New API key generated','success')">+ Generate Key</button></div>
+              <div class="card-body p-0"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last Used</th><th>Permissions</th><th>Actions</th></tr></thead><tbody id="api-key-table"></tbody></table></div></div>
+            </div>
+          </div>
+          <div id="sett-prefs" class="settings-tab" style="display:none">
+            <div class="card">
+              <div class="card-header"><h3>Preferences</h3></div>
+              <div class="card-body">
+                <div class="toggle-row"><div class="toggle-info"><div class="t-label">Email Notifications</div><div class="t-desc">Receive security alerts via email</div></div><button class="toggle-sw on" onclick="this.classList.toggle('on')"></button></div>
+                <div class="toggle-row"><div class="toggle-info"><div class="t-label">Slack Integration</div><div class="t-desc">Post scan results to Slack</div></div><button class="toggle-sw" onclick="this.classList.toggle('on')"></button></div>
+                <div class="toggle-row"><div class="toggle-info"><div class="t-label">Auto-Scan on Push</div><div class="t-desc">Automatically scan images when pushed to registry</div></div><button class="toggle-sw on" onclick="this.classList.toggle('on')"></button></div>
+                <div class="toggle-row"><div class="toggle-info"><div class="t-label">Dark Mode</div><div class="t-desc">Use dark theme throughout</div></div><button class="toggle-sw on" onclick="this.classList.toggle('on')"></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast-container" class="toast-container"></div>
+<script>
+function showSettingsTab(tab) {
+  $$('.settings-tab').forEach(t => t.style.display = 'none');
+  $(`#sett-${tab}`).style.display = 'block';
+  $$('#page-settings .page-tab').forEach(t => t.classList.remove('active'));
+  const idx = {profile:0,security:1,keys:2,prefs:3};
+  $$('#page-settings .page-tab')[idx[tab]].classList.add('active');
+}
+</script>
+<script src="app.js"></script>
+</body>
+</html>

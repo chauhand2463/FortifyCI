@@ -1,10 +1,17 @@
+# Dependencies
 node_modules/
-dist/
+
+# Next.js
+.next/
+out/
+
+# Logs
+*.log
+
+# Environment
 .env
 .env.local
-*.log
+
+# OS
 .DS_Store
-reports/
-coverage/
-keys/
-!keys/.gitkeep
+Thumbs.db

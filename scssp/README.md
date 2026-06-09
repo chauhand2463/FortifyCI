@@ -6,15 +6,15 @@ A production-grade backend platform for securing your container supply chain wit
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Fastify API Gateway                    │
+│                    Fastify API Gateway                  │
 │  Auth | Users | Images | Scans | Vulns | SBOM | Reports │
 └────────────────────────┬────────────────────────────────┘
                          │
-┌────────────────────────┴────────────────────────────────┐
-│                     Application Layer                    │
-│            Domain Services & Use Cases                   │
+┌────────────────────────┴───────────────────────────────┐
+│                     Application Layer                  │
+│            Domain Services & Use Cases                 │
 ├────────────────────────────────────────────────────────┤
-│                   Infrastructure Layer                   │
+│                   Infrastructure Layer                 │
 │    PostgreSQL (Prisma)  Redis (BullMQ)  MinIO (S3)     │
 └────────────────────────────────────────────────────────┘
 ```
@@ -22,7 +22,7 @@ A production-grade backend platform for securing your container supply chain wit
 ## Tech Stack
 
 | Component      | Technology                          |
-|----------------|--------------------------------------|
+|----------------|-------------------------------------|
 | Runtime        | Node.js 22                          |
 | Language       | TypeScript 5.4                      |
 | Framework      | Fastify 4.x                         |
@@ -191,6 +191,7 @@ npm run test:integration
 npm run test:coverage
 ```
 
+
 ## Docker Deployment
 
 ```bash
@@ -198,7 +199,7 @@ npm run test:coverage
 docker compose -f docker/docker-compose.yml up -d
 
 # Build API image
-docker build -t fortifyci-api .
+docker build -t fortifyci-api 
 
 # Run API with infrastructure
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.api.yml up -d
