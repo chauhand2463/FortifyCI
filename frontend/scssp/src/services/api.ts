@@ -1,6 +1,6 @@
 import type { ContainerImage, Scan, Vulnerability, Report, Notification, ScanStatistics, SBOMEntry, PaginatedResponse, User } from '@/types'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null
@@ -307,6 +307,14 @@ export const services = {
     return { message: body.message || 'Password reset link sent to your email' }
   },
 
+  async resetPassword(token: string, password: string) {
+    const body = await apiRequest<{ success: boolean; message: string }>('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }, false)
+    return { message: body.message || 'Password reset successfully' }
+  },
+
   async getStatistics() {
     // Check if we have a dashboard endpoint
     try {
@@ -508,6 +516,40 @@ export const services = {
   async markNotificationRead(id: string) {
     await apiRequest(`/api/v1/notifications/${id}/read`, { method: 'PATCH' })
     return true
+  },
+
+  async createApiKey(name: string, permissions: string[] = []) {
+    const body = await apiRequest<{ success: boolean; data: { id: string; name: string; keyPrefix: string; key: string; permissions: string[]; createdAt: string } }>('/api/v1/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name, permissions }),
+    })
+    return body.data
+  },
+
+  async getApiKeys() {
+    const body = await apiRequest<{ success: boolean; items: Array<{ id: string; name: string; keyPrefix: string; permissions: string[]; lastUsedAt: string | null; createdAt: string }> }>('/api/v1/api-keys?limit=100')
+    return body.items || []
+  },
+
+  async deleteApiKey(id: string) {
+    await apiRequest(`/api/v1/api-keys/${id}`, { method: 'DELETE' })
+    return true
+  },
+
+  async updateProfile(name: string, email: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ username: name, email }),
+    })
+    return body.data
+  },
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const body = await apiRequest<{ success: boolean; message: string }>('/api/v1/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+    return body.message
   },
 
   async getChartData(): Promise<{ vulnerabilitySeverity: Array<{ name: string; value: number; color: string }>; scanTrend: Array<{ date: string; scans: number; vulnerabilities: number }>; monthlySecurity: Array<{ month: string; critical: number; high: number; medium: number; low: number }> }> {

@@ -30,12 +30,16 @@ const ALL_PERMISSIONS: { name: PermissionName; description: string }[] = [
   { name: 'REPORT_CREATE', description: 'Create reports' },
   { name: 'REPORT_READ', description: 'View reports' },
   { name: 'REPORT_DOWNLOAD', description: 'Download reports' },
+  { name: 'REPORT_DELETE', description: 'Delete reports' },
   { name: 'NOTIFICATION_READ', description: 'View notifications' },
   { name: 'NOTIFICATION_MANAGE', description: 'Manage notifications' },
   { name: 'AUDIT_LOG_READ', description: 'View audit logs' },
   { name: 'AUDIT_LOG_EXPORT', description: 'Export audit logs' },
   { name: 'JOB_READ', description: 'View jobs' },
   { name: 'JOB_CANCEL', description: 'Cancel jobs' },
+  { name: 'API_KEY_CREATE', description: 'Create API keys' },
+  { name: 'API_KEY_READ', description: 'View API keys' },
+  { name: 'API_KEY_DELETE', description: 'Delete API keys' },
 ];
 
 const ROLE_PERMISSIONS: Record<RoleName, PermissionName[]> = {
@@ -47,10 +51,12 @@ const ROLE_PERMISSIONS: Record<RoleName, PermissionName[]> = {
     'SCAN_CREATE', 'SCAN_READ', 'SCAN_CANCEL',
     'VULNERABILITY_READ', 'VULNERABILITY_EXPORT',
     'SBOM_CREATE', 'SBOM_READ', 'SBOM_DELETE',
-    'REPORT_CREATE', 'REPORT_READ', 'REPORT_DOWNLOAD',
+    'REPORT_CREATE', 'REPORT_READ', 'REPORT_DOWNLOAD', 'REPORT_DELETE',
     'NOTIFICATION_READ', 'NOTIFICATION_MANAGE',
     'AUDIT_LOG_READ',
     'JOB_READ', 'JOB_CANCEL',
+    'API_KEY_CREATE', 'API_KEY_READ', 'API_KEY_DELETE',
+    'API_KEY_CREATE', 'API_KEY_READ', 'API_KEY_DELETE',
   ],
   DEVELOPER: [
     'USER_READ',
@@ -73,11 +79,11 @@ const ROLE_PERMISSIONS: Record<RoleName, PermissionName[]> = {
   ],
   VIEWER: [
     'USER_READ',
-    'IMAGE_READ',
-    'SCAN_READ',
+    'IMAGE_REGISTER', 'IMAGE_READ',
+    'SCAN_CREATE', 'SCAN_READ',
     'VULNERABILITY_READ',
-    'SBOM_READ',
-    'REPORT_READ',
+    'SBOM_CREATE', 'SBOM_READ',
+    'REPORT_CREATE', 'REPORT_READ',
     'NOTIFICATION_READ',
   ],
 };

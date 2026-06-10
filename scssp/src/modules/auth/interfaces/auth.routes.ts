@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authService } from '../application/auth.service';
-import { registerSchema, loginSchema, refreshTokenSchema, changePasswordSchema } from '../domain/auth.types';
+import { registerSchema, loginSchema, refreshTokenSchema, changePasswordSchema, forgotPasswordSchema, resetPasswordSchema } from '../domain/auth.types';
 import { authenticate } from '@shared/middleware/auth';
 import { getEnv } from '@shared/config/env';
 import { ValidationError } from '@shared/errors';
@@ -103,6 +103,28 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     reply.clearCookie('refreshToken', { path: refreshCookiePath });
 
     return { success: true };
+  });
+
+  app.post('/forgot-password', {
+    config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = forgotPasswordSchema.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError(parsed.error.errors.map((e) => e.message).join(', '));
+
+    await authService.forgotPassword(parsed.data.email);
+
+    return { success: true, message: 'If the email exists, a password reset link has been sent' };
+  });
+
+  app.post('/reset-password', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = resetPasswordSchema.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError(parsed.error.errors.map((e) => e.message).join(', '));
+
+    await authService.resetPassword(parsed.data.token, parsed.data.password);
+
+    return { success: true, message: 'Password reset successfully' };
   });
 
   app.post('/change-password', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {

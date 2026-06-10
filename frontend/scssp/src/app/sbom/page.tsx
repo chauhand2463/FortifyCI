@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useSBOM } from '@/hooks/use-queries'
+import { useSBOM, useImages } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, Spinner, ErrorState } from '@/components/ui/shared'
@@ -10,17 +10,6 @@ import { Select } from '@/components/ui/select'
 import { severityBgClass, formatDate, cn } from '@/lib/utils'
 import { Package, Scale, GitBranch } from 'lucide-react'
 
-const imageOptions = [
-  { value: 'img-1', label: 'nginx:1.25-alpine' },
-  { value: 'img-2', label: 'node:20-slim' },
-  { value: 'img-3', label: 'python:3.12-slim' },
-  { value: 'img-4', label: 'redis:7.2-alpine' },
-  { value: 'img-5', label: 'postgres:16' },
-  { value: 'img-6', label: 'alpine:3.19' },
-  { value: 'img-7', label: 'golang:1.22' },
-  { value: 'img-8', label: 'ubuntu:24.04' },
-]
-
 const sbomTabs = [
   { id: 'packages', label: 'Packages' },
   { id: 'licenses', label: 'Licenses' },
@@ -28,9 +17,15 @@ const sbomTabs = [
 ]
 
 export default function SBOMPage() {
-  const [imageId, setImageId] = useState('img-1')
+  const { data: imagesData } = useImages(1, 100)
+  const images = imagesData?.data || []
+  const imageOptions = images.map(img => ({ value: img.id, label: `${img.name}:${img.tag}` }))
+
+  const [imageId, setImageId] = useState('')
   const [tab, setTab] = useState('packages')
   const { data: sbom, isLoading, error, refetch } = useSBOM(imageId)
+
+  const selectedLabel = imageOptions.find(o => o.value === imageId)?.label || ''
 
   return (
     <div className="space-y-6">
@@ -41,7 +36,7 @@ export default function SBOMPage() {
         </div>
         <div className="w-full sm:w-64">
           <Select
-            options={imageOptions}
+            options={imageOptions.length > 0 ? imageOptions : [{ value: '', label: 'No images available' }]}
             value={imageId}
             onChange={e => setImageId(e.target.value)}
           />
@@ -52,7 +47,7 @@ export default function SBOMPage() {
         <Card className="overflow-hidden">
           <CardHeader>
             <div>
-              <CardTitle>SBOM - {imageOptions.find(o => o.value === imageId)?.label}</CardTitle>
+              <CardTitle>SBOM - {selectedLabel}</CardTitle>
               <CardDescription>
                 {sbom.bomFormat} v{sbom.specVersion}  Generated {formatDate(sbom.createdAt)}
               </CardDescription>
@@ -63,12 +58,14 @@ export default function SBOMPage() {
 
       <Tabs tabs={sbomTabs} activeTab={tab} onTabChange={setTab} />
 
-      {isLoading ? (
+      {!imageId ? (
+        <div className="flex items-center justify-center py-12 text-[#5A6380]">Select an image to view its SBOM</div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>
       ) : error ? (
         <ErrorState message="Failed to load SBOM data" onRetry={() => refetch()} />
-      ) : !sbom ? (
-        <div className="flex items-center justify-center py-12 text-[#5A6380]">Select an image to view its SBOM</div>
+      ) : !sbom || sbom.packages.length === 0 ? (
+        <div className="flex items-center justify-center py-12 text-[#5A6380]">No SBOM data available for this image. Run a scan first.</div>
       ) : (
         <>
           {tab === 'packages' && (

@@ -76,11 +76,14 @@ services:
       MINIO_USE_SSL: "false"
       JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
       JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+      TRIVY_CACHE_DIR: /app/.trivy-cache
       ENCRYPTION_KEY: dev-encryption-key-32-chars-long!!
       CORS_ORIGIN: "*"
       FORGOT_PASSWORD_URL: http://localhost:4000/forgot-password
     ports:
       - "3000:3000"
+    volumes:
+      - trivy_cache:/app/.trivy-cache
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
       interval: 10s
@@ -117,6 +120,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  trivy_cache:
 
 networks:
   fortifyci-network:

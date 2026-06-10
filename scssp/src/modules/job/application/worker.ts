@@ -6,6 +6,7 @@ import { scanImage } from '@shared/scanner/trivy';
 import { generateSpdxSbom, generateCycloneDxSbom } from '@shared/sbom/generator';
 import { generatePdfReport } from '@shared/reporting/pdf';
 import { generateCsvReport } from '@shared/reporting/csv';
+import { generateJsonReport } from '@shared/reporting/json';
 import { sendScanCompletedEmail } from '@shared/notifications/email';
 
 const logger = getLogger();
@@ -189,6 +190,13 @@ async function processReportJob(job: any): Promise<void> {
 
     if (format === 'PDF') {
       result = await generatePdfReport(
+        report.title,
+        report.scanId,
+        report.imageId,
+        report.parameters as Record<string, unknown> | undefined,
+      );
+    } else if (format === 'JSON') {
+      result = await generateJsonReport(
         report.title,
         report.scanId,
         report.imageId,

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const createReportSchema = z.object({
   title: z.string().min(1).max(255),
-  format: z.enum(['PDF', 'CSV']).default('PDF'),
+  format: z.enum(['PDF', 'CSV', 'JSON']).default('PDF'),
   scanId: z.string().uuid().optional(),
   imageId: z.string().uuid().optional(),
   parameters: z.object({
@@ -19,7 +19,7 @@ export const createReportSchema = z.object({
 export const reportQuerySchema = z.object({
   page: z.coerce.number().optional().default(1),
   limit: z.coerce.number().optional().default(20),
-  format: z.enum(['PDF', 'CSV']).optional(),
+  format: z.enum(['PDF', 'CSV', 'JSON']).optional(),
   status: z.string().optional(),
 });
 

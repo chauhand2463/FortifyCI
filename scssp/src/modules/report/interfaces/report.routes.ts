@@ -47,14 +47,16 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
 
     const fs = await import('fs');
     const stream = fs.createReadStream(report.filePath);
-    const ext = report.format === 'PDF' ? 'pdf' : 'csv';
-    reply.header('Content-Type', report.format === 'PDF' ? 'application/pdf' : 'text/csv');
+    const extMap: Record<string, string> = { PDF: 'pdf', CSV: 'csv', JSON: 'json' };
+    const mimeMap: Record<string, string> = { PDF: 'application/pdf', CSV: 'text/csv', JSON: 'application/json' };
+    const ext = extMap[report.format] || 'bin';
+    reply.header('Content-Type', mimeMap[report.format] || 'application/octet-stream');
     reply.header('Content-Disposition', `attachment; filename="${report.title}.${ext}"`);
     return reply.send(stream);
   });
 
   app.delete('/:id', {
-    preHandler: [authorize('REPORT_DOWNLOAD')],
+    preHandler: [authorize('REPORT_DELETE')],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     await reportService.delete(id, request.user!.userId);

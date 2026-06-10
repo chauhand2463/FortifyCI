@@ -115,6 +115,39 @@ export function useCreateScan() {
   })
 }
 
+export function useApiKeys() {
+  return useQuery({
+    queryKey: ['apiKeys'],
+    queryFn: () => services.getApiKeys(),
+  })
+}
+
+export function useCreateApiKey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, permissions }: { name: string; permissions?: string[] }) =>
+      services.createApiKey(name, permissions),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['apiKeys'] }),
+  })
+}
+
+export function useDeleteApiKey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => services.deleteApiKey(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['apiKeys'] }),
+  })
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, email }: { name: string; email: string }) =>
+      services.updateProfile(name, email),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['profile'] }),
+  })
+}
+
 export function useActiveScans() {
   return useQuery({
     queryKey: ['scans', 'active'],

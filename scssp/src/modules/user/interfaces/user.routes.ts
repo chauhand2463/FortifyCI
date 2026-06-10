@@ -32,6 +32,14 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: result };
   });
 
+  app.patch('/me', async (request: FastifyRequest) => {
+    const parsed = updateUserSchema.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError(parsed.error.errors.map((e) => e.message).join(', '));
+
+    const result = await userService.update(request.user!.userId, parsed.data, request.user!.userId);
+    return { success: true, data: result };
+  });
+
   app.get('/:id', {
     preHandler: [authorize('USER_READ')],
   }, async (request: FastifyRequest) => {
