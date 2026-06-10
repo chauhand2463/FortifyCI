@@ -90,7 +90,7 @@ export default function ReportsPage() {
               >
                 <option value="">Latest scan</option>
                 {scans.map(s => (
-                  <option key={s.id} value={s.id}>{s.imageRef || s.id.slice(0, 8)}</option>
+                  <option key={s.id} value={s.id}>{s.imageName || s.id.slice(0, 8)}</option>
                 ))}
               </select>
             </div>

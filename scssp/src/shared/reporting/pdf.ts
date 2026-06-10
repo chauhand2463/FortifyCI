@@ -123,7 +123,6 @@ export async function generatePdfReport(
           doc.moveDown(0.3);
         }
       }
-    }
   }
 
   doc.end();

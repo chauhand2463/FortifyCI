@@ -55,6 +55,11 @@ export function useReports() {
   return useQuery({
     queryKey: ['reports'],
     queryFn: () => services.getReports(),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const hasGenerating = data?.some(r => r.status === 'generating')
+      return hasGenerating ? 3000 : false
+    },
   })
 }
 
