@@ -61,7 +61,8 @@ async function apiRequest<T = any>(path: string, options: RequestInit = {}, retr
         window.location.href = '/login'
       }
     }
-    throw new Error(body?.error?.message || `Request failed: ${res.status}`)
+    const message = body?.error?.message || (res.status === 403 ? 'You do not have permission to perform this action. Contact your admin.' : `Request failed: ${res.status}`)
+    throw new Error(message)
   }
 
   if (body.success !== undefined && !body.success) {
@@ -112,6 +113,10 @@ interface BackendScan {
   maxRetries: number
   metadata: Record<string, unknown> | null
   vulnerabilitiesCount: number
+  criticalCount: number
+  highCount: number
+  mediumCount: number
+  lowCount: number
   createdAt: string
   updatedAt: string
 }
@@ -160,10 +165,10 @@ function transformImage(img: BackendImage, scans: BackendScan[]): ContainerImage
     size: formatBytes(img.size),
     status,
     vulnerabilities: {
-      critical: 0,
-      high: 0,
-      medium: 0,
-      low: 0,
+      critical: latestScan?.criticalCount ?? 0,
+      high: latestScan?.highCount ?? 0,
+      medium: latestScan?.mediumCount ?? 0,
+      low: latestScan?.lowCount ?? 0,
     },
     lastScanned: latestScan?.completedAt || latestScan?.createdAt || '',
     createdAt: img.createdAt,
@@ -179,10 +184,10 @@ function transformScan(s: BackendScan): Scan {
     status: toLowerStatus(s.status) as Scan['status'],
     progress: s.progress,
     totalVulnerabilities: s.vulnerabilitiesCount,
-    criticalCount: 0,
-    highCount: 0,
-    mediumCount: 0,
-    lowCount: 0,
+    criticalCount: s.criticalCount ?? 0,
+    highCount: s.highCount ?? 0,
+    mediumCount: s.mediumCount ?? 0,
+    lowCount: s.lowCount ?? 0,
     startedAt: s.startedAt || '',
     completedAt: s.completedAt,
     duration: computeDuration(s.startedAt, s.completedAt),
@@ -308,26 +313,36 @@ export const services = {
       const body = await apiRequest<{ success: boolean; data: { stats: ScanStatistics } }>('/api/v1/dashboard')
       return body.data.stats
     } catch {
-      // Fallback: aggregate from images and vulnerabilities
-      const [imgBody, vulnBody] = await Promise.all([
-        apiRequest<{ success: boolean; items: any[]; total: number }>('/api/v1/images?limit=1'),
-        apiRequest<{ success: boolean; summary: { critical: number; high: number; medium: number; low: number; total: number } }>('/api/v1/vulnerabilities?limit=1'),
+      // Fallback: aggregate from images and scans
+      const [imgBody, scansBody] = await Promise.all([
+        apiRequest<{ success: boolean; items: any[]; total: number }>('/api/v1/images?limit=10000'),
+        apiRequest<{ success: boolean; items: BackendScan[] }>('/api/v1/scans?limit=10000').catch(() => ({ success: false, items: [] })),
       ])
-      // Fetch all images to count scanned
-      const allImgBody = await apiRequest<{ success: boolean; items: any[]; total: number }>('/api/v1/images?limit=10000')
+
+      const scans = (scansBody as any)?.items || []
+      const images = imgBody.items || []
+      const totalVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.vulnerabilitiesCount || 0), 0)
+      const criticalVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.criticalCount || 0), 0)
+      const highVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.highCount || 0), 0)
+      const mediumVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.mediumCount || 0), 0)
+      const lowVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.lowCount || 0), 0)
+      const scannedImages = scans.filter((s: BackendScan) => s.status === 'COMPLETED').length
+        ? [...new Set(scans.filter((s: BackendScan) => s.status === 'COMPLETED').map((s: BackendScan) => s.imageId))].length
+        : 0
+      const imagesAtRisk = scans.filter((s: BackendScan) => s.criticalCount > 0 || s.highCount > 0).length
+        ? [...new Set(scans.filter((s: BackendScan) => s.criticalCount > 0 || s.highCount > 0).map((s: BackendScan) => s.imageId))].length
+        : 0
 
       return {
-        totalImages: imgBody.total || 0,
-        scannedImages: allImgBody.items?.filter((i: any) => i.scans?.length > 0).length || 0,
-        totalVulnerabilities: vulnBody.summary?.total || 0,
-        criticalVulnerabilities: vulnBody.summary?.critical || 0,
-        highVulnerabilities: vulnBody.summary?.high || 0,
-        mediumVulnerabilities: vulnBody.summary?.medium || 0,
-        lowVulnerabilities: vulnBody.summary?.low || 0,
-        fixesAvailable: vulnBody.summary?.total || 0,
-        imagesAtRisk: allImgBody.items?.filter((i: any) => i.scans?.some((s: any) =>
-          s.vulnerabilities?.some((v: any) => ['CRITICAL', 'HIGH'].includes(v.severity))
-        )).length || 0,
+        totalImages: images.length,
+        scannedImages,
+        totalVulnerabilities: totalVulns,
+        criticalVulnerabilities: criticalVulns,
+        highVulnerabilities: highVulns,
+        mediumVulnerabilities: mediumVulns,
+        lowVulnerabilities: lowVulns,
+        fixesAvailable: totalVulns,
+        imagesAtRisk,
       }
     }
   },

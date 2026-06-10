@@ -121,6 +121,12 @@ export class ScanService {
   }
 
   private mapScanResponse(scan: any): ScanResponse {
+    const vulns = scan.vulnerabilities ?? [];
+    const criticalCount = vulns.filter((v: any) => v.severity === 'CRITICAL').length;
+    const highCount = vulns.filter((v: any) => v.severity === 'HIGH').length;
+    const mediumCount = vulns.filter((v: any) => v.severity === 'MEDIUM').length;
+    const lowCount = vulns.filter((v: any) => v.severity === 'LOW' || v.severity === 'UNKNOWN').length;
+
     return {
       id: scan.id,
       imageId: scan.imageId,
@@ -134,7 +140,11 @@ export class ScanService {
       retryCount: scan.retryCount,
       maxRetries: scan.maxRetries,
       metadata: scan.metadata,
-      vulnerabilitiesCount: scan.vulnerabilities.length,
+      vulnerabilitiesCount: vulns.length,
+      criticalCount,
+      highCount,
+      mediumCount,
+      lowCount,
       createdAt: scan.createdAt,
       updatedAt: scan.updatedAt,
     };

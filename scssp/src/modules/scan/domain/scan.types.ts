@@ -33,6 +33,10 @@ export interface ScanResponse {
   maxRetries: number;
   metadata: Record<string, unknown> | null;
   vulnerabilitiesCount: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
   createdAt: Date;
   updatedAt: Date;
 }

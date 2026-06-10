@@ -1,0 +1,55 @@
+services:
+  legacy-base:
+    build:
+      context: ./legacy-base
+    image: fortifyci-test-legacy-base:latest
+    container_name: fortifyci-test-legacy-base
+    ports:
+      - "2221:22"
+      - "8081:80"
+      - "3001:3000"
+    networks:
+      - test-net
+    restart: unless-stopped
+
+  vulnerable-node:
+    build:
+      context: ./vulnerable-node
+    image: fortifyci-test-vulnerable-node:latest
+    container_name: fortifyci-test-vulnerable-node
+    ports:
+      - "2222:22"
+      - "3002:3000"
+      - "9229:9229"
+    networks:
+      - test-net
+    restart: unless-stopped
+
+  misconfigured-nginx:
+    build:
+      context: ./misconfigured-nginx
+    image: fortifyci-test-misconfigured-nginx:latest
+    container_name: fortifyci-test-misconfigured-nginx
+    ports:
+      - "2223:22"
+      - "8082:80"
+      - "8443:443"
+    networks:
+      - test-net
+    restart: unless-stopped
+
+  secrets-leak:
+    build:
+      context: ./secrets-leak
+    image: fortifyci-test-secrets-leak:latest
+    container_name: fortifyci-test-secrets-leak
+    ports:
+      - "2224:22"
+      - "3003:3000"
+    networks:
+      - test-net
+    restart: unless-stopped
+
+networks:
+  test-net:
+    driver: bridge

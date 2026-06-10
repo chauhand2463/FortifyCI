@@ -1,0 +1,17 @@
+production:
+  adapter: postgresql
+  host: prod-db.internal
+  port: 5432
+  database: app_production
+  username: readonly_user
+  password: read0nly!P@ss
+  pool: 25
+
+staging:
+  adapter: postgresql
+  host: staging-db.internal
+  port: 5432
+  database: app_staging
+  username: deploy_user
+  password: dep10y!St@g1ng
+  pool: 10

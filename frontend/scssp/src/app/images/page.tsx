@@ -55,12 +55,29 @@ export default function ImagesPage() {
       name = input.split(':')[0]
       tag = input.split(':')[1]
     }
+
+    let registry = 'docker.io'
+    let repository = ''
+    if (name.includes('/')) {
+      const parts = name.split('/')
+      if (parts.length >= 3) {
+        registry = parts.slice(0, -2).join('/')
+        repository = parts.slice(-2).join('/')
+        name = parts[parts.length - 1]
+      } else {
+        repository = name
+        name = parts[parts.length - 1]
+      }
+    } else {
+      repository = `library/${name}`
+    }
+
     try {
       const img = await registerImage.mutateAsync({
         name,
         tag,
-        registry: 'docker.io',
-        repository: `library/${name}`,
+        registry,
+        repository,
       })
       await createScan.mutateAsync({ imageId: img.id })
       toast.success(`Scan started for ${input}`)
