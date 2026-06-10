@@ -61,9 +61,20 @@ export function useReports() {
 export function useGenerateReport() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ type, format }: { type: string; format: string }) =>
-      services.generateReport(type, format),
+    mutationFn: ({ type, format, scanId }: { type: string; format: string; scanId?: string }) =>
+      services.generateReport(type, format, scanId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reports'] }),
+  })
+}
+
+export function useGenerateSBOM() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ imageId, format }: { imageId: string; format?: string }) =>
+      services.createSBOM(imageId, format),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sbom'] })
+    },
   })
 }
 

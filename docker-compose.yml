@@ -84,6 +84,7 @@ services:
       - "3000:3000"
     volumes:
       - trivy_cache:/app/.trivy-cache
+      - report_output:/app/reports
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
       interval: 10s
@@ -121,6 +122,7 @@ volumes:
   redis_data:
   minio_data:
   trivy_cache:
+  report_output:
 
 networks:
   fortifyci-network:

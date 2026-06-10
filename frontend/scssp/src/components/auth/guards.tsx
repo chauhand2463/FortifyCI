@@ -1,20 +1,25 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store'
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
   const router = useRouter()
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (ready && !isAuthenticated) {
       router.replace('/login')
     }
-  }, [isAuthenticated, router])
+  }, [ready, isAuthenticated, router])
 
-  if (!isAuthenticated) {
+  if (!ready || !isAuthenticated) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#00D4AA]/30 border-t-[#00D4AA]" />

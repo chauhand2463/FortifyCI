@@ -39,6 +39,9 @@ export interface ImageResponse {
   mediaType: string | null;
   isSigned: boolean;
   labels: Record<string, unknown> | null;
+  manifest: Record<string, unknown> | null;
+  config: Record<string, unknown> | null;
+  signatureInfo: Record<string, unknown> | null;
   userId: string;
   createdAt: Date;
   updatedAt: Date;

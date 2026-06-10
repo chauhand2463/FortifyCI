@@ -8,6 +8,7 @@ export function getPrisma(): PrismaClient {
     const env = getEnv();
     _prisma = new PrismaClient({
       log: env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['warn', 'error'],
+      datasourceUrl: env.DATABASE_URL + (env.DATABASE_URL.includes('?') ? '&' : '?') + 'connection_limit=20&pool_timeout=30',
     });
   }
   return _prisma;

@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useStatistics, useChartData, useScans, useImages } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +19,23 @@ export default function DashboardPage() {
   const { data: scansData, isLoading: scansLoading } = useScans(1, 5)
   const { data: imagesData, isLoading: imagesLoading } = useImages(1, 100)
 
+  const statCards = useMemo(() => [
+    { label: 'Total Images', value: stats?.totalImages ?? 0, icon: Container, color: 'text-[#4DA6FF]', bg: 'bg-[#4DA6FF]/10', change: '+2 this week' },
+    { label: 'Total Vulnerabilities', value: stats?.totalVulnerabilities ?? 0, icon: Bug, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: '+12 new' },
+    { label: 'Critical', value: stats?.criticalVulnerabilities ?? 0, icon: AlertTriangle, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: '+3 this week' },
+    { label: 'High', value: stats?.highVulnerabilities ?? 0, icon: AlertTriangle, color: 'text-[#FFA502]', bg: 'bg-[#FFA502]/10', change: 'Stable' },
+    { label: 'Fixes Available', value: stats?.fixesAvailable ?? 0, icon: CheckCircle, color: 'text-[#00D4AA]', bg: 'bg-[#00D4AA]/10', change: 'Action needed' },
+    { label: 'Images at Risk', value: stats?.imagesAtRisk ?? 0, icon: Shield, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: 'Needs review' },
+  ], [stats])
+
+  const severityData = useMemo(() => chartData?.vulnerabilitySeverity ?? [], [chartData])
+  const trendData = useMemo(() => chartData?.scanTrend ?? [], [chartData])
+  const monthlyData = useMemo(() => chartData?.monthlySecurity ?? [], [chartData])
+
+  const maxTrend = useMemo(() => Math.max(...trendData.map(d => d.vulnerabilities), 1), [trendData])
+  const maxMonthly = useMemo(() => Math.max(...monthlyData.flatMap(d => [d.critical, d.high, d.medium, d.low]), 1), [monthlyData])
+  const severityTotal = useMemo(() => severityData.reduce((s, d) => s + d.value, 0), [severityData])
+
   if (statsLoading || chartLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -27,23 +45,6 @@ export default function DashboardPage() {
   }
 
   if (statsError) return <ErrorState message="Failed to load dashboard data" onRetry={() => refetchStats()} />
-
-  const statCards = [
-    { label: 'Total Images', value: stats?.totalImages ?? 0, icon: Container, color: 'text-[#4DA6FF]', bg: 'bg-[#4DA6FF]/10', change: '+2 this week' },
-    { label: 'Total Vulnerabilities', value: stats?.totalVulnerabilities ?? 0, icon: Bug, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: '+12 new' },
-    { label: 'Critical', value: stats?.criticalVulnerabilities ?? 0, icon: AlertTriangle, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: '+3 this week' },
-    { label: 'High', value: stats?.highVulnerabilities ?? 0, icon: AlertTriangle, color: 'text-[#FFA502]', bg: 'bg-[#FFA502]/10', change: 'Stable' },
-    { label: 'Fixes Available', value: stats?.fixesAvailable ?? 0, icon: CheckCircle, color: 'text-[#00D4AA]', bg: 'bg-[#00D4AA]/10', change: 'Action needed' },
-    { label: 'Images at Risk', value: stats?.imagesAtRisk ?? 0, icon: Shield, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: 'Needs review' },
-  ]
-
-  const severityData = chartData?.vulnerabilitySeverity ?? []
-  const trendData = chartData?.scanTrend ?? []
-  const monthlyData = chartData?.monthlySecurity ?? []
-
-  const maxTrend = Math.max(...trendData.map(d => d.vulnerabilities), 1)
-  const maxMonthly = Math.max(...monthlyData.flatMap(d => [d.critical, d.high, d.medium, d.low]), 1)
-  const severityTotal = severityData.reduce((s, d) => s + d.value, 0)
 
   return (
     <div className="space-y-6">
@@ -78,26 +79,28 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {statCards.map(card => {
-          const Icon = card.icon
-          return (
-            <Card key={card.label} className="group hover:border-[#252A5A] transition-all duration-200">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg transition-colors', card.bg, 'group-hover:scale-105 duration-200')}>
-                    <Icon className={cn('h-5 w-5', card.color)} />
+      <div className="overflow-x-auto -mx-4 px-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 min-w-[600px]">
+          {statCards.map(card => {
+            const Icon = card.icon
+            return (
+              <Card key={card.label} className="group hover:border-[#252A5A] transition-all duration-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg transition-colors', card.bg, 'group-hover:scale-105 duration-200')}>
+                      <Icon className={cn('h-5 w-5', card.color)} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-[#5A6380] font-medium uppercase tracking-wider truncate">{card.label}</p>
+                      <p className="text-xl font-bold text-white mt-0.5 tabular-nums">{card.value.toLocaleString()}</p>
+                      <p className="text-[10px] text-[#3A4058] mt-0.5">{card.change}</p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-[#5A6380] font-medium uppercase tracking-wider truncate">{card.label}</p>
-                    <p className="text-xl font-bold text-white mt-0.5 tabular-nums">{card.value.toLocaleString()}</p>
-                    <p className="text-[10px] text-[#3A4058] mt-0.5">{card.change}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -106,8 +109,8 @@ export default function DashboardPage() {
             <CardTitle>Vulnerability Severity</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-center py-4">
-              <svg width="200" height="200" viewBox="0 0 200 200">
+            <div className="flex items-center justify-center py-4 overflow-hidden">
+              <svg viewBox="0 0 200 200" className="w-[200px] h-[200px] max-w-full shrink-0">
                 {(() => {
                   const total = severityData.reduce((s, d) => s + d.value, 0)
                   let cumulative = 0
@@ -171,26 +174,28 @@ export default function DashboardPage() {
             <CardTitle>Scan Trend (7 Days)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-48 flex items-end justify-between gap-2 pt-4">
-              {trendData.map((d, i) => {
-                const height = (d.vulnerabilities / maxTrend) * 160
-                return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <span className="text-xs text-[#5A6380] tabular-nums">{d.vulnerabilities}</span>
-                    <div className="w-full flex flex-col items-center gap-0.5">
-                      <div
-                        className="w-full rounded-t bg-[#00D4AA]/60 transition-all duration-300 hover:bg-[#00D4AA]/80 min-h-[4px]"
-                        style={{ height: `${Math.max(height, 4)}px` }}
-                      />
-                      <div
-                        className="w-full rounded-t bg-[#FFA502]/40 transition-all duration-300 hover:bg-[#FFA502]/60 min-h-[4px]"
-                        style={{ height: `${Math.max((d.scans / Math.max(...trendData.map(x => x.scans), 1)) * 80, 4)}px` }}
-                      />
+            <div className="overflow-x-auto -mx-6 px-6">
+              <div className="h-48 flex items-end justify-between gap-2 pt-4 min-w-[400px]">
+                {trendData.map((d, i) => {
+                  const height = (d.vulnerabilities / maxTrend) * 160
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <span className="text-xs text-[#5A6380] tabular-nums">{d.vulnerabilities}</span>
+                      <div className="w-full flex flex-col items-center gap-0.5">
+                        <div
+                          className="w-full rounded-t bg-[#00D4AA]/60 transition-all duration-300 hover:bg-[#00D4AA]/80 min-h-[4px]"
+                          style={{ height: `${Math.max(height, 4)}px` }}
+                        />
+                        <div
+                          className="w-full rounded-t bg-[#FFA502]/40 transition-all duration-300 hover:bg-[#FFA502]/60 min-h-[4px]"
+                          style={{ height: `${Math.max((d.scans / Math.max(...trendData.map(x => x.scans), 1)) * 80, 4)}px` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-[#3A4058] mt-1">{d.date}</span>
                     </div>
-                    <span className="text-[10px] text-[#3A4058] mt-1">{d.date}</span>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
             <div className="flex items-center justify-center gap-6 mt-4 text-xs text-[#5A6380]">
               <div className="flex items-center gap-2">
@@ -211,24 +216,26 @@ export default function DashboardPage() {
           <CardTitle>Monthly Vulnerability Trend</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-56 flex items-end justify-between gap-3 pt-4">
-            {monthlyData.map((d) => {
-              const cH = (d.critical / maxMonthly) * 160
-              const hH = (d.high / maxMonthly) * 160
-              const mH = (d.medium / maxMonthly) * 160
-              const lH = (d.low / maxMonthly) * 160
-              return (
-                <div key={d.month} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full space-y-[2px]">
-                    <div className="w-full rounded-t bg-[#FF4757]/60 transition-all duration-300 hover:bg-[#FF4757]/80" style={{ height: `${Math.max(cH, 2)}px` }} />
-                    <div className="w-full bg-[#FFA502]/60 transition-all duration-300 hover:bg-[#FFA502]/80" style={{ height: `${Math.max(hH, 2)}px` }} />
-                    <div className="w-full bg-[#4DA6FF]/60 transition-all duration-300 hover:bg-[#4DA6FF]/80" style={{ height: `${Math.max(mH, 2)}px` }} />
-                    <div className="w-full rounded-b bg-[#5A6380]/40 transition-all duration-300 hover:bg-[#5A6380]/60" style={{ height: `${Math.max(lH, 2)}px` }} />
+          <div className="overflow-x-auto -mx-6 px-6">
+            <div className="h-56 flex items-end justify-between gap-3 pt-4 min-w-[500px]">
+              {monthlyData.map((d) => {
+                const cH = (d.critical / maxMonthly) * 160
+                const hH = (d.high / maxMonthly) * 160
+                const mH = (d.medium / maxMonthly) * 160
+                const lH = (d.low / maxMonthly) * 160
+                return (
+                  <div key={d.month} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="w-full space-y-[2px]">
+                      <div className="w-full rounded-t bg-[#FF4757]/60 transition-all duration-300 hover:bg-[#FF4757]/80" style={{ height: `${Math.max(cH, 2)}px` }} />
+                      <div className="w-full bg-[#FFA502]/60 transition-all duration-300 hover:bg-[#FFA502]/80" style={{ height: `${Math.max(hH, 2)}px` }} />
+                      <div className="w-full bg-[#4DA6FF]/60 transition-all duration-300 hover:bg-[#4DA6FF]/80" style={{ height: `${Math.max(mH, 2)}px` }} />
+                      <div className="w-full rounded-b bg-[#5A6380]/40 transition-all duration-300 hover:bg-[#5A6380]/60" style={{ height: `${Math.max(lH, 2)}px` }} />
+                    </div>
+                    <span className="text-[10px] text-[#3A4058] mt-1">{d.month}</span>
                   </div>
-                  <span className="text-[10px] text-[#3A4058] mt-1">{d.month}</span>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
           <div className="flex items-center justify-center gap-4 mt-4 text-xs text-[#5A6380]">
             <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-[#FF4757]/60" /><span>Critical</span></div>

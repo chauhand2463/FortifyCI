@@ -21,8 +21,13 @@ export async function generateJsonReport(
   const reportId = crypto.randomUUID();
   const filePath = path.join(outputDir, `${reportId}.json`);
 
+  const scan = scanId
+    ? await prisma.scan.findUnique({ where: { id: scanId } })
+    : await prisma.scan.findFirst({ orderBy: { createdAt: 'desc' } });
+
+  const effectiveScanId = scanId || scan?.id || null;
   const where: Record<string, unknown> = {};
-  if (scanId) where['scanId'] = scanId;
+  if (effectiveScanId) where['scanId'] = effectiveScanId;
   if (imageId) where['scan'] = { imageId };
 
   const vulnerabilities = await prisma.vulnerability.findMany({
@@ -39,8 +44,15 @@ export async function generateJsonReport(
   const reportData = {
     reportTitle: title,
     generatedAt: new Date().toISOString(),
-    scanId,
+    scanId: effectiveScanId,
     imageId,
+    scanInfo: scan ? {
+      status: scan.status,
+      scanType: scan.scanType,
+      imageRef: scan.imageRef,
+      startedAt: scan.startedAt?.toISOString(),
+      completedAt: scan.completedAt?.toISOString(),
+    } : null,
     summary: {
       totalVulnerabilities: vulnerabilities.length,
       severityCounts,

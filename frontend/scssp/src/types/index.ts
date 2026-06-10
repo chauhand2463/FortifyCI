@@ -29,7 +29,35 @@ export interface ContainerImage {
   }
   lastScanned: string
   createdAt: string
+  updatedAt: string
   registry: string
+  repository: string
+  architecture: string | null
+  os: string | null
+  mediaType: string | null
+  isSigned: boolean
+  labels: Record<string, string> | null
+}
+
+export interface ImageDetail {
+  id: string
+  name: string
+  tag: string
+  digest: string | null
+  registry: string
+  repository: string
+  architecture: string | null
+  os: string | null
+  size: string | null
+  mediaType: string | null
+  isSigned: boolean
+  labels: Record<string, unknown> | null
+  manifest: Record<string, unknown> | null
+  config: Record<string, unknown> | null
+  signatureInfo: Record<string, unknown> | null
+  userId: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface Scan {

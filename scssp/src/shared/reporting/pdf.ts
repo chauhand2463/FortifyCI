@@ -44,13 +44,17 @@ export async function generatePdfReport(
   doc.fontSize(14).font('Helvetica-Bold').fillColor('#333').text(title);
   doc.moveDown();
 
-  if (scanId) {
-    const scan = await prisma.scan.findUnique({
-      where: { id: scanId },
-      include: { image: true, vulnerabilities: true },
-    });
+  const scan = scanId
+    ? await prisma.scan.findUnique({
+        where: { id: scanId },
+        include: { image: true, vulnerabilities: true },
+      })
+    : await prisma.scan.findFirst({
+        orderBy: { createdAt: 'desc' },
+        include: { image: true, vulnerabilities: true },
+      });
 
-    if (scan) {
+  if (scan) {
       doc.fontSize(12).font('Helvetica-Bold').fillColor('#333').text('Scan Information');
       doc.fontSize(10).font('Helvetica').fillColor('#555');
       doc.text(`Image: ${scan.imageRef}`);

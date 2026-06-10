@@ -1,0 +1,11 @@
+{
+  "name": "vulnerable-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "4.16.0",
+    "lodash": "4.17.4",
+    "request": "2.87.0",
+    "mongoose": "4.13.0",
+    "ejs": "2.5.5"
+  }
+}

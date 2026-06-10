@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useReports, useGenerateReport } from '@/hooks/use-queries'
+import { useReports, useGenerateReport, useScans } from '@/hooks/use-queries'
+import { services } from '@/services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,12 +30,24 @@ const reportFormats = [
 export default function ReportsPage() {
   const [type, setType] = useState('vulnerability')
   const [format, setFormat] = useState('pdf')
+  const [scanId, setScanId] = useState('')
   const { data: reports, isLoading, error, refetch } = useReports()
+  const { data: scansData } = useScans()
+  const scans = scansData?.data || []
   const generateMutation = useGenerateReport()
+
+  const handleDownload = async (reportId: string, title: string, format: string) => {
+    try {
+      await services.downloadReportFile(reportId, `${title}.${format}`)
+      toast.success('Download started')
+    } catch {
+      toast.error('Download failed')
+    }
+  }
 
   const handleGenerate = () => {
     generateMutation.mutate(
-      { type, format },
+      { type, format, scanId: scanId || undefined },
       {
         onSuccess: () => toast.success('Report generation started'),
         onError: () => toast.error('Failed to generate report'),
@@ -68,6 +81,19 @@ export default function ReportsPage() {
               <label className="block text-sm font-medium text-[#5A6380] mb-1.5">Report Type</label>
               <Select options={reportTypes} value={type} onChange={e => setType(e.target.value)} />
             </div>
+            <div className="w-full sm:w-48">
+              <label className="block text-sm font-medium text-[#5A6380] mb-1.5">Scan (optional)</label>
+              <select
+                value={scanId}
+                onChange={e => setScanId(e.target.value)}
+                className="w-full h-10 rounded-lg border border-[#2A2F3E] bg-[#1A1D2E] px-3 text-sm text-white focus:border-[#FFA502] focus:outline-none"
+              >
+                <option value="">Latest scan</option>
+                {scans.map(s => (
+                  <option key={s.id} value={s.id}>{s.imageRef || s.id.slice(0, 8)}</option>
+                ))}
+              </select>
+            </div>
             <div className="w-full sm:w-40">
               <label className="block text-sm font-medium text-[#5A6380] mb-1.5">Format</label>
               <Select options={reportFormats} value={format} onChange={e => setFormat(e.target.value)} />
@@ -94,6 +120,7 @@ export default function ReportsPage() {
           <CardContent><ErrorState message="Failed to load reports" onRetry={() => refetch()} /></CardContent>
         ) : (
           <>
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -137,18 +164,28 @@ export default function ReportsPage() {
                       <TableCell className="text-[#5A6380] text-xs">{formatDate(rpt.createdAt)}</TableCell>
                       <TableCell className="text-[#5A6380] text-xs tabular-nums">{rpt.size || '-'}</TableCell>
                       <TableCell>
-                        {rpt.status === 'ready' && (
-                          <Button variant="ghost" size="sm" className="gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {rpt.status === 'ready' ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => handleDownload(rpt.id, rpt.title, rpt.format)}
+                          >
                             <Download className="h-3.5 w-3.5" />
                             Download
                           </Button>
-                        )}
+                        ) : rpt.status === 'generating' ? (
+                          <span className="text-xs text-[#FFA502]">Generating...</span>
+                        ) : rpt.status === 'failed' ? (
+                          <span className="text-xs text-[#FF4757]">Failed</span>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
+            </div>
           </>
         )}
       </Card>

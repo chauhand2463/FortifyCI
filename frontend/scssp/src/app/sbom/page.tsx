@@ -1,14 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { useSBOM, useImages } from '@/hooks/use-queries'
+import { useSBOM, useImages, useGenerateSBOM } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Tabs, Spinner, ErrorState } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select } from '@/components/ui/select'
 import { severityBgClass, formatDate, cn } from '@/lib/utils'
-import { Package, Scale, GitBranch } from 'lucide-react'
+import { Package, Scale, GitBranch, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 const sbomTabs = [
   { id: 'packages', label: 'Packages' },
@@ -24,8 +26,22 @@ export default function SBOMPage() {
   const [imageId, setImageId] = useState('')
   const [tab, setTab] = useState('packages')
   const { data: sbom, isLoading, error, refetch } = useSBOM(imageId)
+  const generateMutation = useGenerateSBOM()
 
   const selectedLabel = imageOptions.find(o => o.value === imageId)?.label || ''
+
+  const handleGenerateSBOM = () => {
+    generateMutation.mutate(
+      { imageId, format: 'CYCLONEDX' },
+      {
+        onSuccess: () => {
+          toast.success('SBOM generation started')
+          setTimeout(() => refetch(), 2000)
+        },
+        onError: () => toast.error('Failed to generate SBOM'),
+      }
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -65,7 +81,13 @@ export default function SBOMPage() {
       ) : error ? (
         <ErrorState message="Failed to load SBOM data" onRetry={() => refetch()} />
       ) : !sbom || sbom.packages.length === 0 ? (
-        <div className="flex items-center justify-center py-12 text-[#5A6380]">No SBOM data available for this image. Run a scan first.</div>
+        <div className="flex flex-col items-center justify-center py-12 text-[#5A6380]">
+          <p className="mb-4">No SBOM data available for this image</p>
+          <Button onClick={handleGenerateSBOM} disabled={generateMutation.isPending} className="gap-2">
+            {generateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {generateMutation.isPending ? 'Generating...' : 'Generate SBOM'}
+          </Button>
+        </div>
       ) : (
         <>
           {tab === 'packages' && (

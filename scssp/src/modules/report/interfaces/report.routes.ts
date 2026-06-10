@@ -46,6 +46,10 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const fs = await import('fs');
+    if (!fs.existsSync(report.filePath)) {
+      return reply.code(404).send({ success: false, message: 'Report file not found on disk' });
+    }
+
     const stream = fs.createReadStream(report.filePath);
     const extMap: Record<string, string> = { PDF: 'pdf', CSV: 'csv', JSON: 'json' };
     const mimeMap: Record<string, string> = { PDF: 'application/pdf', CSV: 'text/csv', JSON: 'application/json' };

@@ -1,4 +1,4 @@
-import type { ContainerImage, Scan, Vulnerability, Report, Notification, ScanStatistics, SBOMEntry, PaginatedResponse, User } from '@/types'
+import type { ContainerImage, Scan, Vulnerability, Report, Notification, ScanStatistics, SBOMEntry, PaginatedResponse, User, ImageDetail } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -172,7 +172,14 @@ function transformImage(img: BackendImage, scans: BackendScan[]): ContainerImage
     },
     lastScanned: latestScan?.completedAt || latestScan?.createdAt || '',
     createdAt: img.createdAt,
+    updatedAt: img.updatedAt,
     registry: img.registry,
+    repository: img.repository,
+    architecture: img.architecture,
+    os: img.os,
+    mediaType: img.mediaType,
+    isSigned: img.isSigned,
+    labels: img.labels as Record<string, string> | null,
   }
 }
 
@@ -225,12 +232,14 @@ function transformNotification(n: any): Notification {
 }
 
 function transformReport(r: any): Report {
+  const s = (r.status || '').toUpperCase()
+  const status: Report['status'] = s === 'COMPLETED' ? 'ready' : s === 'FAILED' ? 'failed' : 'generating'
   return {
     id: r.id,
     title: r.title,
     type: (r.parameters?.type || (r.format === 'pdf' ? 'vulnerability' : 'custom')) as Report['type'],
     format: r.format?.toLowerCase() as Report['format'],
-    status: r.status?.toLowerCase() as Report['status'],
+    status,
     createdAt: r.createdAt,
     generatedAt: r.generatedAt || null,
     size: r.fileSize ? formatBytes(r.fileSize) : null,
@@ -395,9 +404,42 @@ export const services = {
   },
 
   async getImageById(id: string) {
-    const body = await apiRequest<{ success: boolean; data: BackendImage }>(`/api/v1/images/${id}`)
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/images/${id}`)
     const scansBody = await apiRequest<{ success: boolean; items: BackendScan[] }>(`/api/v1/scans?limit=10000`).catch(() => ({ success: true, items: [] }))
     return transformImage(body.data, scansBody.items || [])
+  },
+
+  async getImageDetail(id: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/images/${id}`)
+    const d = body.data
+    return {
+      id: d.id,
+      name: d.name,
+      tag: d.tag,
+      digest: d.digest,
+      registry: d.registry,
+      repository: d.repository,
+      architecture: d.architecture,
+      os: d.os,
+      size: d.size,
+      mediaType: d.mediaType,
+      isSigned: d.isSigned,
+      labels: d.labels,
+      manifest: d.manifest,
+      config: d.config,
+      signatureInfo: d.signatureInfo,
+      userId: d.userId,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    } as ImageDetail
+  },
+
+  async createSBOM(imageId: string, format = 'CYCLONEDX') {
+    const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/sboms', {
+      method: 'POST',
+      body: JSON.stringify({ imageId, format }),
+    })
+    return body.data
   },
 
   async getScansByImageId(imageId: string) {
@@ -496,12 +538,29 @@ export const services = {
     return (body.items || []).map(transformReport)
   },
 
-  async generateReport(type: string, format: string) {
+  async downloadReportFile(reportId: string, filename: string) {
+    const token = getToken()
+    const url = `${API_BASE}/api/v1/reports/${reportId}/download`
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) throw new Error('Download failed')
+    const blob = await res.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(blobUrl)
+  },
+
+  async generateReport(type: string, format: string, scanId?: string) {
     const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/reports', {
       method: 'POST',
       body: JSON.stringify({
         title: `Custom ${type} Report`,
         format: format.toUpperCase(),
+        scanId,
         parameters: { type },
       }),
     })

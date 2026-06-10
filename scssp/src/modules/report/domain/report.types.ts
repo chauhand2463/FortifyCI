@@ -13,7 +13,7 @@ export const createReportSchema = z.object({
       start: z.string().datetime().optional(),
       end: z.string().datetime().optional(),
     }).optional(),
-  }).optional(),
+  }).passthrough().optional(),
 });
 
 export const reportQuerySchema = z.object({

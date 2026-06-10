@@ -10,16 +10,27 @@ import { StatusDot } from '@/components/ui/status-dot'
 import { Spinner, ErrorState } from '@/components/ui/shared'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/utils'
-import { Container, ScanSearch, ArrowLeft, Loader2 } from 'lucide-react'
+import { Container, ScanSearch, ArrowLeft, Loader2, Tag, Cpu, Monitor, FileJson, BookmarkCheck, BookmarkX } from 'lucide-react'
 import { toast } from 'sonner'
-import type { ContainerImage, Scan } from '@/types'
+import type { ContainerImage, Scan, ImageDetail } from '@/types'
 
 function useImageDetail(id: string) {
   return useQuery({
     queryKey: ['image', id],
     queryFn: async () => {
       const body = await services.getImageById(id)
-      return body
+      return body as ContainerImage
+    },
+    enabled: !!id,
+  })
+}
+
+function useRawImageDetail(id: string) {
+  return useQuery({
+    queryKey: ['imageDetail', id],
+    queryFn: async () => {
+      const body = await services.getImageDetail(id)
+      return body as ImageDetail
     },
     enabled: !!id,
   })
@@ -49,6 +60,7 @@ export default function ImageDetailPage() {
   const [scanning, setScanning] = useState(false)
 
   const { data: image, isLoading, error } = useImageDetail(id)
+  const { data: rawDetail } = useRawImageDetail(id)
   const { data: scans, isLoading: scansLoading } = useImageScans(id)
 
   const handleScan = async () => {
@@ -93,7 +105,8 @@ export default function ImageDetailPage() {
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               {image.name}<span className="text-[#5A6380] font-normal">:{image.tag}</span>
             </h1>
-            <p className="text-sm text-[#5A6380] mt-0.5">{image.registry}/{image.digest?.slice(0, 19) || 'unknown'}...</p>
+            <p className="text-sm text-[#5A6380] mt-0.5">{image.registry}/{image.repository}</p>
+            <p className="text-xs text-[#3D4470] font-mono mt-0.5 break-all">{image.digest || 'No digest'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -119,7 +132,7 @@ export default function ImageDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Status</CardTitle></CardHeader>
           <CardContent>
@@ -147,6 +160,42 @@ export default function ImageDetailPage() {
           <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Size</CardTitle></CardHeader>
           <CardContent><span className="text-white font-medium">{image.size}</span></CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Architecture</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-[#4DA6FF]" />
+              <span className="text-white font-medium">{image.architecture || 'N/A'}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">OS</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Monitor className="h-4 w-4 text-[#4DA6FF]" />
+              <span className="text-white font-medium">{image.os || 'N/A'}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Media Type</CardTitle></CardHeader>
+          <CardContent>
+            <span className="text-white font-medium text-sm">{image.mediaType || 'N/A'}</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Signed</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              {image.isSigned ? (
+                <><BookmarkCheck className="h-4 w-4 text-[#00D4AA]" /><span className="text-[#00D4AA] font-medium">Signed</span></>
+              ) : (
+                <><BookmarkX className="h-4 w-4 text-[#5A6380]" /><span className="text-[#5A6380]">Not signed</span></>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {activeScan && (
@@ -171,6 +220,50 @@ export default function ImageDetailPage() {
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {rawDetail?.labels && Object.keys(rawDetail.labels).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> Labels</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {Object.entries(rawDetail.labels).map(([key, value]) => (
+                <div key={key} className="p-2 rounded-lg bg-[#0D1022] border border-[#1C2150]">
+                  <p className="text-xs text-[#5A6380] font-mono">{key}</p>
+                  <p className="text-sm text-white font-medium break-all">{String(value)}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {rawDetail?.manifest && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><FileJson className="h-4 w-4" /> Manifest</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-[#5A6380] font-mono overflow-auto max-h-60 p-3 rounded-lg bg-[#0D1022] border border-[#1C2150]">
+              {JSON.stringify(rawDetail.manifest, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+
+      {rawDetail?.config && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><FileJson className="h-4 w-4" /> Config</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-[#5A6380] font-mono overflow-auto max-h-60 p-3 rounded-lg bg-[#0D1022] border border-[#1C2150]">
+              {JSON.stringify(rawDetail.config, null, 2)}
+            </pre>
           </CardContent>
         </Card>
       )}
