@@ -31,12 +31,14 @@ export interface ScanResponse {
   completedAt: Date | null;
   retryCount: number;
   maxRetries: number;
+  triggeredBy: string | null;
   metadata: Record<string, unknown> | null;
   vulnerabilitiesCount: number;
   criticalCount: number;
   highCount: number;
   mediumCount: number;
   lowCount: number;
+  regressionDetected: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -2,6 +2,8 @@ import { getPrisma } from '@shared/database/prisma';
 import { auditService } from '@modules/audit/application/audit.service';
 import { NotFoundError } from '@shared/errors';
 import { getQueue } from '@shared/queue';
+import { getMinioClient } from '@shared/storage/minio';
+import { getEnv } from '@shared/config/env';
 import type { CreateReportDto, ReportQueryDto, ReportResponse, PaginatedReports } from '../domain/report.types';
 
 export class ReportService {
@@ -75,6 +77,14 @@ export class ReportService {
     const prisma = getPrisma();
     const report = await prisma.report.findUnique({ where: { id } });
     if (!report) throw new NotFoundError('Report', id);
+
+    if (report.filePath) {
+      try {
+        const env = getEnv();
+        const client = getMinioClient();
+        await client.removeObject(env.MINIO_BUCKET, report.filePath);
+      } catch {}
+    }
 
     await prisma.report.delete({ where: { id } });
 

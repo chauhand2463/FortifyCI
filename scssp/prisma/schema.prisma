@@ -48,6 +48,11 @@ enum PermissionName {
   API_KEY_CREATE
   API_KEY_READ
   API_KEY_DELETE
+  VULNERABILITY_ASSIGN
+  VULNERABILITY_EXCEPTION
+  WEBHOOK_MANAGE
+  POLICY_MANAGE
+  LIVE_SCAN_CREATE
 }
 
 enum ScanStatus {
@@ -90,6 +95,13 @@ enum NotificationType {
   VULNERABILITY_FOUND
   REPORT_READY
   SYSTEM_ALERT
+  SCAN_REGRESSION
+  SLA_BREACHED
+  ASSIGNMENT_CREATED
+  EXCEPTION_EXPIRED
+  NVD_CRITICAL_CVE
+  EXCEPTION_APPROVED
+  EXCEPTION_CREATED
 }
 
 enum NotificationChannel {
@@ -113,6 +125,24 @@ enum JobStatus {
   PAUSED
 }
 
+enum RemediationStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  ACCEPTED_RISK
+  FALSE_POSITIVE
+}
+
+enum LiveScanStatus {
+  PENDING
+  PULLING
+  SCANNING
+  EVALUATING
+  PASSED
+  BLOCKED
+  FAILED
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -121,7 +151,6 @@ model User {
   isActive     Boolean   @default(true)
   isVerified   Boolean   @default(false)
   lastLoginAt  DateTime?
-  refreshToken          String?
   passwordResetToken    String?   @unique
   passwordResetExpires  DateTime?
   createdAt             DateTime  @default(now())
@@ -134,15 +163,38 @@ model User {
   scans         Scan[]
   sboms         SBOM[]
   reports       Report[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
-  sessions      Session[]
-  apiKeys       ApiKey[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  sessions           Session[]
+  apiKeys            ApiKey[]
+  refreshTokens      RefreshToken[]
+  liveScans          LiveScan[]
+  assignedVulns      VulnerabilityAssignment[] @relation("AssignedTo")
+  assignedByVulns    VulnerabilityAssignment[] @relation("AssignedBy")
+  createdExceptions  VulnerabilityException[] @relation("ExceptionCreator")
+  approvedExceptions VulnerabilityException[] @relation("ExceptionApprover")
+  revokedExceptions  VulnerabilityException[] @relation("ExceptionRevoker")
 
   @@index([email])
   @@index([username])
   @@index([roleId])
   @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
 }
 
 model Session {
@@ -213,6 +265,7 @@ model Image {
   os            String?
   size          BigInt?
   mediaType     String?
+  registryCredentials Json?
   manifest      Json?
   config        Json?
   labels        Json?
@@ -225,9 +278,11 @@ model Image {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  scans   Scan[]
-  sboms   SBOM[]
-  reports Report[]
+  scans             Scan[]
+  sboms             SBOM[]
+  reports           Report[]
+  postureSnapshots  PostureSnapshot[]
+  exceptions        VulnerabilityException[]
 
   @@unique([name, tag, registry, repository, deletedAt])
   @@index([name])
@@ -249,6 +304,7 @@ model Scan {
   metadata     Json?
   retryCount   Int        @default(0)
   maxRetries   Int        @default(3)
+  triggeredBy  String?    @default("USER")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -258,9 +314,14 @@ model Scan {
   user    User   @relation(fields: [userId], references: [id])
 
   vulnerabilities Vulnerability[]
+  packages        Package[]
+  sboms           SBOM[]
   reports         Report[]
   jobId           String?         @unique
   job             Job?            @relation("ScanJob", fields: [jobId], references: [id])
+  diff            ScanDiff?       @relation("NewerScan")
+  baselineDiff    ScanDiff?       @relation("BaselineScan")
+  postureSnapshot PostureSnapshot?
 
   @@index([status])
   @@index([imageId])
@@ -269,12 +330,31 @@ model Scan {
   @@map("scans")
 }
 
+model Package {
+  id        String   @id @default(uuid())
+  name      String
+  version   String
+  ecosystem String
+  purl      String?
+  createdAt DateTime @default(now())
+
+  scanId String
+  scan   Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([name])
+  @@index([purl])
+  @@map("packages")
+}
+
 model Vulnerability {
   id               String    @id @default(uuid())
   vulnerabilityId  String
-  packageName      String
-  packageVersion   String
+  packageName      String?
+  packageVersion   String?
   packageType      String?
+  pkgName          String?
+  pkgVersion       String?
   severity         Severity  @default(UNKNOWN)
   cvssScore        Float?
   cvssVector       String?
@@ -295,12 +375,202 @@ model Vulnerability {
   scanId String
   scan   Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
 
+  assignment VulnerabilityAssignment?
+
   @@index([vulnerabilityId])
   @@index([severity])
   @@index([scanId])
   @@index([packageName])
+  @@index([pkgName])
   @@index([vulnerabilityId, scanId])
   @@map("vulnerabilities")
+}
+
+model VulnerabilityAssignment {
+  id              String            @id @default(cuid())
+  vulnerabilityId String
+  vulnerability   Vulnerability     @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+  assignedToId    String
+  assignedTo      User              @relation("AssignedTo", fields: [assignedToId], references: [id])
+  assignedById    String
+  assignedBy      User              @relation("AssignedBy", fields: [assignedById], references: [id])
+  status          RemediationStatus @default(OPEN)
+  slaDeadline     DateTime
+  slaBreached     Boolean           @default(false)
+  slaBreachedAt   DateTime?
+  resolvedAt      DateTime?
+  resolvingScanId String?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([vulnerabilityId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([slaDeadline])
+  @@index([slaBreached])
+  @@map("vulnerability_assignments")
+}
+
+model VulnerabilityException {
+  id            String    @id @default(cuid())
+  cveId         String
+  imageId       String?
+  image         Image?    @relation(fields: [imageId], references: [id])
+  reason        String
+  createdById   String
+  createdBy     User      @relation("ExceptionCreator", fields: [createdById], references: [id])
+  approvedById  String?
+  approvedBy    User?     @relation("ExceptionApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+  isActive      Boolean   @default(false)
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedById   String?
+  revokedBy     User?     @relation("ExceptionRevoker", fields: [revokedById], references: [id])
+  createdAt     DateTime  @default(now())
+
+  @@index([cveId, isActive])
+  @@index([expiresAt])
+  @@map("vulnerability_exceptions")
+}
+
+model ScanPolicy {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  description      String?
+  blockOnCritical  Boolean  @default(true)
+  blockOnHigh      Boolean  @default(false)
+  maxHighCount     Int      @default(0)
+  maxMediumCount   Int      @default(-1)
+  slaCriticalDays  Int      @default(7)
+  slaHighDays      Int      @default(30)
+  slaMediumDays    Int      @default(90)
+  registryPatterns String[]
+  isDefault        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  liveScans LiveScan[]
+
+  @@index([name])
+  @@index([isDefault])
+  @@map("scan_policies")
+}
+
+model Webhook {
+  id          String             @id @default(cuid())
+  name        String
+  url         String
+  secret      String
+  events      String[]
+  isActive    Boolean            @default(true)
+  lastFiredAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id           String   @id @default(cuid())
+  webhookId    String
+  webhook      Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  event        String
+  payload      Json
+  httpStatus   Int?
+  responseBody String?
+  success      Boolean
+  attemptCount Int      @default(1)
+  deliveredAt  DateTime @default(now())
+
+  @@index([webhookId, deliveredAt])
+  @@map("webhook_deliveries")
+}
+
+model CveWatch {
+  id             String    @id @default(cuid())
+  cveId          String    @unique
+  publishedAt    DateTime
+  severity       Severity
+  cvssScore      Float?
+  affectedImages String[]
+  rescanCount    Int       @default(0)
+  processed      Boolean   @default(false)
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([cveId])
+  @@index([processed, createdAt])
+  @@index([severity])
+  @@map("cve_watches")
+}
+
+model PostureSnapshot {
+  id              String   @id @default(cuid())
+  imageId         String
+  image           Image    @relation(fields: [imageId], references: [id])
+  scanId          String   @unique
+  scan            Scan     @relation(fields: [scanId], references: [id])
+  criticalCount   Int      @default(0)
+  highCount       Int      @default(0)
+  mediumCount     Int      @default(0)
+  lowCount        Int      @default(0)
+  fixableCount    Int      @default(0)
+  suppressedCount Int      @default(0)
+  postureScore    Float
+  snapshotAt      DateTime @default(now())
+
+  @@index([imageId, snapshotAt])
+  @@index([snapshotAt])
+  @@map("posture_snapshots")
+}
+
+model ScanDiff {
+  id                 String   @id @default(cuid())
+  scanId             String   @unique
+  scan               Scan     @relation("NewerScan", fields: [scanId], references: [id])
+  baselineScanId     String   @unique
+  baselineScan       Scan     @relation("BaselineScan", fields: [baselineScanId], references: [id])
+  introducedCount    Int      @default(0)
+  resolvedCount      Int      @default(0)
+  persistedCount     Int      @default(0)
+  deltaScore         Int      @default(0)
+  regressionDetected Boolean  @default(false)
+  introducedCveIds   String[]
+  resolvedCveIds     String[]
+  computedAt         DateTime @default(now())
+
+  @@index([scanId])
+  @@index([baselineScanId])
+  @@map("scan_diffs")
+}
+
+model LiveScan {
+  id             String         @id @default(cuid())
+  requestedById  String
+  requestedBy    User           @relation(fields: [requestedById], references: [id])
+  imageRef       String
+  imageDigest    String?
+  policyId       String?
+  policy         ScanPolicy?    @relation(fields: [policyId], references: [id])
+  status         LiveScanStatus @default(PENDING)
+  progress       Int            @default(0)
+  passed         Boolean?
+  blockingReason String?
+  downloadUrl    String?
+  downloadExpiry DateTime?
+  linkedScanId   String?
+  createdAt      DateTime       @default(now())
+  completedAt    DateTime?
+
+  @@index([requestedById])
+  @@index([imageDigest])
+  @@index([status])
+  @@index([createdAt])
+  @@map("live_scans")
 }
 
 model SBOM {
@@ -309,20 +579,21 @@ model SBOM {
   version      String
   specVersion  String?
   content      Json
-  rawContent   String?
+  rawDocument  Json?
   packageCount Int?
-  fileHash     String?
-  filePath     String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   imageId String
   image   Image  @relation(fields: [imageId], references: [id])
+  scanId  String?
+  scan    Scan?  @relation(fields: [scanId], references: [id])
   userId  String
   user    User   @relation(fields: [userId], references: [id])
 
   @@index([format])
   @@index([imageId])
+  @@index([scanId])
   @@index([userId])
   @@index([createdAt])
   @@map("sboms")

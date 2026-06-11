@@ -33,7 +33,7 @@ export default function ReportsPage() {
   const [scanId, setScanId] = useState('')
   const { data: reports, isLoading, error, refetch } = useReports()
   const { data: scansData } = useScans()
-  const scans = scansData?.data || []
+  const scans = scansData?.items || []
   const generateMutation = useGenerateReport()
 
   const handleDownload = async (reportId: string, title: string, format: string) => {
@@ -134,12 +134,12 @@ export default function ReportsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(reports ?? []).length === 0 ? (
+                {(reports?.items ?? []).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-12 text-[#5A6380]">No reports generated yet</TableCell>
                   </TableRow>
                 ) : (
-                  (reports ?? []).map(rpt => (
+                  (reports?.items ?? []).map(rpt => (
                     <TableRow key={rpt.id} className="group">
                       <TableCell>
                         <div className="flex items-center gap-3">

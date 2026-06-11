@@ -18,6 +18,13 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Activity,
+  GitCompare,
+  UserCheck,
+  ShieldOff,
+  ScrollText,
+  Webhook,
+  Radio,
 } from 'lucide-react'
 
 interface NavItem {
@@ -36,6 +43,13 @@ const navItems: NavItem[] = [
   { href: '/reports', label: 'Reports', icon: FileText, roles: ['admin', 'developer', 'viewer'] },
   { href: '/notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'developer', 'viewer'] },
   { href: '/settings', label: 'Settings', icon: Settings, roles: ['admin', 'developer', 'viewer'] },
+  { href: '/blast-radius', label: 'Blast Radius', icon: Activity, roles: ['admin', 'developer'] },
+  { href: '/posture', label: 'Posture', icon: GitCompare, roles: ['admin', 'developer', 'viewer'] },
+  { href: '/assignments', label: 'Assignments', icon: UserCheck, roles: ['admin', 'developer'] },
+  { href: '/exceptions', label: 'Exceptions', icon: ShieldOff, roles: ['admin'] },
+  { href: '/policies', label: 'Policies', icon: ScrollText, roles: ['admin'] },
+  { href: '/webhooks', label: 'Webhooks', icon: Webhook, roles: ['admin'] },
+  { href: '/live-scan', label: 'Live Scan', icon: Radio, roles: ['admin', 'developer'] },
 ]
 
 export function Sidebar() {
@@ -76,7 +90,7 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
-          {navItems.filter(item => !user || item.roles.includes(user.role)).map((item) => {
+          {navItems.filter(item => !user || item.roles.includes(user.role as 'admin' | 'developer' | 'viewer')).map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
             const Icon = item.icon
             return (

@@ -42,4 +42,31 @@ export async function scanRoutes(app: FastifyInstance): Promise<void> {
     await scanService.cancelScan(id, request.user!.userId);
     return { success: true, message: 'Scan cancelled' };
   });
+
+  app.get('/:id/sbom', {
+    preHandler: [authorize('SBOM_READ')],
+  }, async (request: FastifyRequest) => {
+    const { id } = request.params as { id: string };
+    const result = await scanService.getSbom(id);
+    return { success: true, data: result };
+  });
+
+  app.get('/:id/sbom/download', {
+    preHandler: [authorize('SBOM_READ')],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const { format } = request.query as { format?: string };
+    const result = await scanService.downloadSbom(id, format || 'CYCLONEDX');
+    reply.header('Content-Type', result.contentType);
+    reply.header('Content-Disposition', `attachment; filename="${result.filename}"`);
+    return reply.send(result.content);
+  });
+
+  app.get('/:id/packages', {
+    preHandler: [authorize('VULNERABILITY_READ')],
+  }, async (request: FastifyRequest) => {
+    const { id } = request.params as { id: string };
+    const result = await scanService.getPackages(id);
+    return { success: true, data: result };
+  });
 }

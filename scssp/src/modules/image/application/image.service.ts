@@ -17,6 +17,7 @@ export class ImageService {
         architecture: dto.architecture,
         os: dto.os,
         mediaType: dto.mediaType,
+        registryCredentials: dto.registryCredentials as any,
         manifest: dto.manifest ? JSON.parse(JSON.stringify(dto.manifest)) : undefined,
         config: dto.config ? JSON.parse(JSON.stringify(dto.config)) : undefined,
         labels: dto.labels ? JSON.parse(JSON.stringify(dto.labels)) : undefined,

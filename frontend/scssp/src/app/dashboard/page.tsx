@@ -1,13 +1,15 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useStatistics, useChartData, useScans, useImages } from '@/hooks/use-queries'
+import Link from 'next/link'
+import { useStatistics, useChartData, useScans, useImages, usePostureTrend, useAssignments, useExceptions } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StatusDot } from '@/components/ui/status-dot'
 import { Spinner, ErrorState } from '@/components/ui/shared'
 import { formatRelativeTime, cn } from '@/lib/utils'
 import { useAuthStore } from '@/store'
+import type { ScanTrend, MonthlySecurity, VulnerabilitySeverity } from '@/types'
 import {
   Container, Bug, Shield, AlertTriangle, CheckCircle,
 } from 'lucide-react'
@@ -18,6 +20,9 @@ export default function DashboardPage() {
   const { data: chartData, isLoading: chartLoading } = useChartData()
   const { data: scansData, isLoading: scansLoading } = useScans(1, 5)
   const { data: imagesData, isLoading: imagesLoading } = useImages(1, 100)
+  const { data: postureTrend } = usePostureTrend()
+  const { data: breachedAssignments } = useAssignments({ breached: true })
+  const { data: pendingExceptions } = useExceptions({ isActive: true })
 
   const statCards = useMemo(() => [
     { label: 'Total Images', value: stats?.totalImages ?? 0, icon: Container, color: 'text-[#4DA6FF]', bg: 'bg-[#4DA6FF]/10', change: '+2 this week' },
@@ -28,13 +33,13 @@ export default function DashboardPage() {
     { label: 'Images at Risk', value: stats?.imagesAtRisk ?? 0, icon: Shield, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: 'Needs review' },
   ], [stats])
 
-  const severityData = useMemo(() => chartData?.vulnerabilitySeverity ?? [], [chartData])
-  const trendData = useMemo(() => chartData?.scanTrend ?? [], [chartData])
-  const monthlyData = useMemo(() => chartData?.monthlySecurity ?? [], [chartData])
+  const severityData: VulnerabilitySeverity[] = useMemo(() => (chartData?.vulnerabilitySeverity ?? []) as VulnerabilitySeverity[], [chartData])
+  const trendData: ScanTrend[] = useMemo(() => (chartData?.scanTrend ?? []) as ScanTrend[], [chartData])
+  const monthlyData: MonthlySecurity[] = useMemo(() => (chartData?.monthlySecurity ?? []) as MonthlySecurity[], [chartData])
 
-  const maxTrend = useMemo(() => Math.max(...trendData.map(d => d.vulnerabilities), 1), [trendData])
-  const maxMonthly = useMemo(() => Math.max(...monthlyData.flatMap(d => [d.critical, d.high, d.medium, d.low]), 1), [monthlyData])
-  const severityTotal = useMemo(() => severityData.reduce((s, d) => s + d.value, 0), [severityData])
+  const maxTrend = useMemo(() => Math.max(...trendData.map((d: ScanTrend) => d.vulnerabilities), 1), [trendData])
+  const maxMonthly = useMemo(() => Math.max(...monthlyData.flatMap((d: MonthlySecurity) => [d.critical, d.high, d.medium, d.low]), 1), [monthlyData])
+  const severityTotal = useMemo(() => severityData.reduce((s: number, d: VulnerabilitySeverity) => s + d.value, 0), [severityData])
 
   if (statsLoading || chartLoading) {
     return (
@@ -45,6 +50,15 @@ export default function DashboardPage() {
   }
 
   if (statsError) return <ErrorState message="Failed to load dashboard data" onRetry={() => refetchStats()} />
+
+  const latestPostureScore = postureTrend?.length ? postureTrend[postureTrend.length - 1].score : 0
+  const postureColor = latestPostureScore >= 80 ? '#00D4AA' : latestPostureScore >= 50 ? '#FFA502' : '#FF4757'
+  const breachedCount = breachedAssignments?.items?.length ?? 0
+  const exceptionCount = pendingExceptions?.items?.length ?? 0
+
+  const postureRadius = 70
+  const postureCircumference = 2 * Math.PI * postureRadius
+  const postureOffset = postureCircumference * (1 - latestPostureScore / 100)
 
   return (
     <div className="space-y-6">
@@ -246,6 +260,75 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Posture Score</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center justify-center py-6">
+            <div className="relative flex items-center justify-center">
+              <svg width="180" height="180" className="-rotate-90">
+                <circle cx="90" cy="90" r={postureRadius} fill="none" stroke="#1C2150" strokeWidth="10" />
+                <circle
+                  cx="90" cy="90" r={postureRadius}
+                  fill="none" stroke={postureColor} strokeWidth="10"
+                  strokeDasharray={postureCircumference}
+                  strokeDashoffset={postureOffset}
+                  strokeLinecap="round"
+                  className="transition-all duration-1000"
+                />
+              </svg>
+              <div className="absolute flex flex-col items-center">
+                <span className="text-4xl font-bold text-white tabular-nums">{latestPostureScore}</span>
+                <span className="text-xs text-[#5A6380] mt-1">Posture Score</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>SLA Breaches</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {breachedCount > 0 ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-6 w-6 text-[#FF4757]" />
+                  <div>
+                    <p className="text-sm font-medium text-[#FF4757]">{breachedCount} SLA {breachedCount === 1 ? 'breach' : 'breaches'} require attention</p>
+                    <Link href="/assignments" className="text-xs text-[#FFA502] hover:underline mt-1 inline-block">View Assignments →</Link>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 py-4">
+                <CheckCircle className="h-6 w-6 text-[#00D4AA]" />
+                <p className="text-sm text-[#5A6380]">No SLA breaches</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Exceptions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                <Shield className="h-6 w-6 text-[#4DA6FF]" />
+                <div>
+                  <p className="text-2xl font-bold text-white tabular-nums">{exceptionCount}</p>
+                  <p className="text-xs text-[#5A6380]">pending</p>
+                </div>
+              </div>
+              <Link href="/exceptions" className="text-sm text-[#4DA6FF] hover:underline">View All →</Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -255,7 +338,7 @@ export default function DashboardPage() {
             <CardContent><Spinner /></CardContent>
           ) : (
             <div className="divide-y divide-[#1C2150]/50">
-              {(scansData?.data ?? []).slice(0, 5).map(scan => (
+              {(scansData?.items ?? []).slice(0, 5).map(scan => (
                 <div key={scan.id} className="flex items-center justify-between px-6 py-3 hover:bg-[#131736]/50 transition-colors">
                   <div className="flex items-center gap-3">
                     <StatusDot status={scan.status} />
@@ -281,8 +364,8 @@ export default function DashboardPage() {
             <CardContent><Spinner /></CardContent>
           ) : (
             <div className="divide-y divide-[#1C2150]/50">
-              {(imagesData?.data ?? [])
-                .filter(img => img.status === 'vulnerable')
+              {(imagesData?.items ?? [])
+                .filter(img => img.lastScanStatus === 'vulnerable')
                 .slice(0, 5)
                 .map(img => (
                   <div key={img.id} className="flex items-center justify-between px-6 py-3 hover:bg-[#131736]/50 transition-colors">
@@ -290,13 +373,13 @@ export default function DashboardPage() {
                       <StatusDot status="vulnerable" />
                       <div>
                         <p className="text-sm font-medium text-[#EEF0F7]">{img.name}:{img.tag}</p>
-                        <p className="text-xs text-[#5A6380]">{img.vulnerabilities.critical + img.vulnerabilities.high} critical/high</p>
+                        <p className="text-xs text-[#5A6380]">{img.vulnerabilitySummary.critical + img.vulnerabilitySummary.high} critical/high</p>
                       </div>
                     </div>
-                    <Badge variant="danger">{img.vulnerabilities.critical}C / {img.vulnerabilities.high}H</Badge>
+                    <Badge variant="danger">{img.vulnerabilitySummary.critical}C / {img.vulnerabilitySummary.high}H</Badge>
                   </div>
                 ))}
-              {(imagesData?.data ?? []).filter(img => img.status === 'vulnerable').length === 0 && (
+              {(imagesData?.items ?? []).filter(img => img.lastScanStatus === 'vulnerable').length === 0 && (
                 <div className="px-6 py-8 text-center text-[#5A6380] text-sm">No vulnerable images</div>
               )}
             </div>

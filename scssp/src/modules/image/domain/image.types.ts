@@ -9,6 +9,11 @@ export const registerImageSchema = z.object({
   architecture: z.string().optional(),
   os: z.string().optional(),
   mediaType: z.string().optional(),
+  registryCredentials: z.object({
+    username: z.string(),
+    password: z.string(),
+    serverAddress: z.string().optional(),
+  }).optional(),
   manifest: z.any().optional(),
   config: z.any().optional(),
   labels: z.any().optional(),

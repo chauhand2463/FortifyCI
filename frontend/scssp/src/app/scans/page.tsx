@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useScans, useActiveScans } from '@/hooks/use-queries'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -9,14 +10,14 @@ import { Spinner, ErrorState, Pagination } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { formatDate, cn } from '@/lib/utils'
-import { ScanSearch, RefreshCw } from 'lucide-react'
+import { ScanSearch, RefreshCw, GitCompare, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function ScansPage() {
   const [page, setPage] = useState(1)
   const { data, isLoading, error, refetch } = useScans(page, 10)
   const { data: activeData } = useActiveScans()
-  const hasActiveScans = activeData?.data?.some(
+  const hasActiveScans = activeData?.items?.some(
     s =>     s.status === 'running' || s.status === 'queued'
   )
 
@@ -69,17 +70,19 @@ export default function ScansPage() {
                   <TableHead>Progress</TableHead>
                   <TableHead>Vulnerabilities</TableHead>
                   <TableHead>Scanner</TableHead>
+                  <TableHead>Regression</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Duration</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(data?.data ?? []).length === 0 ? (
+                {(data?.items ?? []).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-12 text-[#5A6380]">No scans found</TableCell>
                   </TableRow>
                 ) : (
-                  (data?.data ?? []).map(scan => (
+                  (data?.items ?? []).map(scan => (
                     <TableRow key={scan.id} className="group">
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -116,14 +119,35 @@ export default function ScansPage() {
                           {scan.highCount > 0 && <span className="text-[#FFA502] font-medium">{scan.highCount}H</span>}
                           {scan.mediumCount > 0 && <span className="text-[#4DA6FF]">{scan.mediumCount}M</span>}
                           {scan.lowCount > 0 && <span className="text-[#5A6380]">{scan.lowCount}L</span>}
-                          {scan.totalVulnerabilities === 0 && scan.status === 'completed' && (
+                          {scan.vulnerabilitiesCount === 0 && scan.status === 'completed' && (
                             <span className="text-[#00D4AA]">None</span>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-[#5A6380] text-xs">{scan.scanner}</TableCell>
+                      <TableCell className="text-[#5A6380] text-xs">{scan.scanType}</TableCell>
+                      <TableCell>
+                        {(scan as any).regressionDetected ? (
+                          <Badge variant="danger" className="gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Regression
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-[#3A4058]">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-[#5A6380] text-xs">{formatDate(scan.startedAt)}</TableCell>
-                      <TableCell className="text-[#5A6380] text-xs tabular-nums">{scan.duration || '-'}</TableCell>
+                      <TableCell className="text-[#5A6380] text-xs tabular-nums">{scan.completedAt ? formatDate(scan.completedAt) : '-'}</TableCell>
+                      <TableCell>
+                        {scan.status === 'completed' && (
+                          <Link
+                            href={`/scans/${scan.id}/diff`}
+                            className="inline-flex items-center gap-1 text-xs text-[#4DA6FF] hover:text-[#6BB8FF] transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <GitCompare className="h-3 w-3" />
+                            Diff
+                          </Link>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

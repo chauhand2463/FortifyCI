@@ -101,7 +101,7 @@ npm run prisma:migrate
 # 5. Seed the database
 npm run prisma:seed
 
-# 6. Start development server
+# 6. Start development server 
 npm run dev
 ```
 

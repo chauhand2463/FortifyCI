@@ -1,9 +1,10 @@
 import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import { getEnv } from '@shared/config/env';
 import { getPrisma } from '@shared/database/prisma';
 import { getLogger } from '@shared/utils/logger';
+import { ensureBucket, uploadFile } from '@shared/storage/minio';
 
 const logger = getLogger();
 
@@ -14,12 +15,8 @@ export async function generateJsonReport(
   parameters?: Record<string, unknown>,
 ): Promise<{ filePath: string; fileSize: number }> {
   const prisma = getPrisma();
-  const env = getEnv();
-  const outputDir = path.resolve(env.REPORT_OUTPUT_DIR);
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fortifyci-'));
   const reportId = crypto.randomUUID();
-  const filePath = path.join(outputDir, `${reportId}.json`);
 
   const scan = scanId
     ? await prisma.scan.findUnique({ where: { id: scanId } })
@@ -77,9 +74,19 @@ export async function generateJsonReport(
   };
 
   const content = JSON.stringify(reportData, null, 2);
-  fs.writeFileSync(filePath, content, 'utf8');
-  const stats = fs.statSync(filePath);
+  const tmpPath = path.join(tmpDir, `${reportId}.json`);
+  fs.writeFileSync(tmpPath, content, 'utf8');
 
-  logger.info({ filePath, fileSize: stats.size, vulnCount: vulnerabilities.length }, 'JSON report generated');
-  return { filePath, fileSize: stats.size };
+  try {
+    await ensureBucket();
+    const objectName = `reports/${reportId}.json`;
+    const buffer = fs.readFileSync(tmpPath);
+    await uploadFile(objectName, buffer, buffer.length, 'application/json');
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    logger.info({ objectName, fileSize: buffer.length, vulnCount: vulnerabilities.length }, 'JSON report uploaded to MinIO');
+    return { filePath: objectName, fileSize: buffer.length };
+  } catch (err) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    throw err;
+  }
 }

@@ -174,7 +174,7 @@ export default function ImagesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(data?.data ?? []).length === 0 ? (
+                {(data?.items ?? []).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-12 text-[#5A6380]">
                       <div className="flex flex-col items-center gap-2">
@@ -188,7 +188,7 @@ export default function ImagesPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (data?.data ?? []).map(img => (
+                  (data?.items ?? []).map(img => (
                     <TableRow key={img.id} className="group">
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -202,31 +202,31 @@ export default function ImagesPage() {
                       <TableCell className="text-[#5A6380] tabular-nums">{img.size}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <StatusDot status={img.status} />
-                          <Badge variant={statusVariant(img.status)}>{img.status}</Badge>
+                          <StatusDot status={img.lastScanStatus} />
+                          <Badge variant={statusVariant(img.lastScanStatus)}>{img.lastScanStatus}</Badge>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 text-xs">
-                          {img.vulnerabilities.critical > 0 && (
-                            <span className="text-[#FF4757] font-medium">{img.vulnerabilities.critical}C</span>
+                          {img.vulnerabilitySummary.critical > 0 && (
+                            <span className="text-[#FF4757] font-medium">{img.vulnerabilitySummary.critical}C</span>
                           )}
-                          {img.vulnerabilities.high > 0 && (
-                            <span className="text-[#FFA502] font-medium">{img.vulnerabilities.high}H</span>
+                          {img.vulnerabilitySummary.high > 0 && (
+                            <span className="text-[#FFA502] font-medium">{img.vulnerabilitySummary.high}H</span>
                           )}
-                          {img.vulnerabilities.medium > 0 && (
-                            <span className="text-[#4DA6FF]">{img.vulnerabilities.medium}M</span>
+                          {img.vulnerabilitySummary.medium > 0 && (
+                            <span className="text-[#4DA6FF]">{img.vulnerabilitySummary.medium}M</span>
                           )}
-                          {img.vulnerabilities.low > 0 && (
-                            <span className="text-[#5A6380]">{img.vulnerabilities.low}L</span>
+                          {img.vulnerabilitySummary.low > 0 && (
+                            <span className="text-[#5A6380]">{img.vulnerabilitySummary.low}L</span>
                           )}
-                          {img.vulnerabilities.critical + img.vulnerabilities.high + img.vulnerabilities.medium + img.vulnerabilities.low === 0 && (
+                          {img.vulnerabilitySummary.critical + img.vulnerabilitySummary.high + img.vulnerabilitySummary.medium + img.vulnerabilitySummary.low === 0 && (
                             <span className="text-[#00D4AA]">None</span>
                           )}
                         </div>
                       </TableCell>
                       <TableCell className="text-[#5A6380] text-xs">{img.registry}</TableCell>
-                      <TableCell className="text-[#5A6380] text-xs">{formatDate(img.lastScanned)}</TableCell>
+                      <TableCell className="text-[#5A6380] text-xs">{formatDate(img.updatedAt)}</TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="outline"

@@ -2,6 +2,7 @@ import { getPrisma } from '@shared/database/prisma';
 import { auditService } from '@modules/audit/application/audit.service';
 import { NotFoundError, ValidationError } from '@shared/errors';
 import { getQueue } from '@shared/queue';
+import { cancelScanProcess } from '@shared/scanner/trivy';
 import type { CreateScanDto, ScanQueryDto, ScanResponse, PaginatedScans } from '../domain/scan.types';
 
 export class ScanService {
@@ -62,7 +63,11 @@ export class ScanService {
     const [items, total] = await Promise.all([
       prisma.scan.findMany({
         where,
-        include: { image: { select: { id: true, name: true, tag: true, registry: true, repository: true } }, vulnerabilities: true },
+        include: {
+          image: { select: { id: true, name: true, tag: true, registry: true, repository: true } },
+          vulnerabilities: true,
+          diff: true,
+        },
         skip,
         take: limit,
         orderBy: { [sortBy]: sortOrder },
@@ -83,7 +88,11 @@ export class ScanService {
     const prisma = getPrisma();
     const scan = await prisma.scan.findUnique({
       where: { id },
-      include: { image: { select: { id: true, name: true, tag: true, registry: true, repository: true } }, vulnerabilities: true },
+      include: {
+        image: { select: { id: true, name: true, tag: true, registry: true, repository: true } },
+        vulnerabilities: true,
+        diff: true,
+      },
     });
     if (!scan) throw new NotFoundError('Scan', id);
     return this.mapScanResponse(scan);
@@ -103,6 +112,8 @@ export class ScanService {
       data: { status: 'CANCELLED' },
     });
 
+    const killed = cancelScanProcess(id);
+
     const queue = getQueue('scan');
     const jobs = await queue.getJobs(['active', 'waiting', 'delayed']);
     for (const job of jobs) {
@@ -115,9 +126,42 @@ export class ScanService {
       action: 'SCAN_CANCELLED',
       entity: 'Scan',
       entityId: id,
-      description: `Scan cancelled: ${scan.imageRef}`,
+      description: `Scan cancelled: ${scan.imageRef}${killed ? ' (process terminated)' : ''}`,
       userId,
     });
+  }
+
+  async getSbom(scanId: string): Promise<any> {
+    const prisma = getPrisma();
+    const sbom = await prisma.sBOM.findFirst({
+      where: { scanId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!sbom) throw new NotFoundError('SBOM', scanId);
+    return sbom;
+  }
+
+  async getPackages(scanId: string): Promise<any[]> {
+    const prisma = getPrisma();
+    return prisma.package.findMany({ where: { scanId } });
+  }
+
+  async downloadSbom(scanId: string, format: string): Promise<{ content: string; contentType: string; filename: string }> {
+    const prisma = getPrisma();
+    const sbom = await prisma.sBOM.findFirst({
+      where: { scanId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!sbom) throw new NotFoundError('SBOM', scanId);
+
+    const sbomFormat = format?.toUpperCase() || sbom.format;
+    const raw = sbom.rawDocument || sbom.content;
+
+    return {
+      content: JSON.stringify(raw, null, 2),
+      contentType: 'application/json',
+      filename: `sbom-${scanId}-${sbomFormat.toLowerCase()}.json`,
+    };
   }
 
   private mapScanResponse(scan: any): ScanResponse {
@@ -126,6 +170,7 @@ export class ScanService {
     const highCount = vulns.filter((v: any) => v.severity === 'HIGH').length;
     const mediumCount = vulns.filter((v: any) => v.severity === 'MEDIUM').length;
     const lowCount = vulns.filter((v: any) => v.severity === 'LOW' || v.severity === 'UNKNOWN').length;
+    const regressionDetected = scan.diff?.regressionDetected || false;
 
     return {
       id: scan.id,
@@ -139,12 +184,14 @@ export class ScanService {
       completedAt: scan.completedAt,
       retryCount: scan.retryCount,
       maxRetries: scan.maxRetries,
+      triggeredBy: scan.triggeredBy,
       metadata: scan.metadata,
       vulnerabilitiesCount: vulns.length,
       criticalCount,
       highCount,
       mediumCount,
       lowCount,
+      regressionDetected,
       createdAt: scan.createdAt,
       updatedAt: scan.updatedAt,
     };

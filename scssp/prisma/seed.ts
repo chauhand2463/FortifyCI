@@ -24,6 +24,8 @@ const ALL_PERMISSIONS: { name: PermissionName; description: string }[] = [
   { name: 'SCAN_CANCEL', description: 'Cancel scans' },
   { name: 'VULNERABILITY_READ', description: 'View vulnerabilities' },
   { name: 'VULNERABILITY_EXPORT', description: 'Export vulnerabilities' },
+  { name: 'VULNERABILITY_ASSIGN', description: 'Assign vulnerabilities to users' },
+  { name: 'VULNERABILITY_EXCEPTION', description: 'Create/approve CVE exceptions' },
   { name: 'SBOM_CREATE', description: 'Generate SBOMs' },
   { name: 'SBOM_READ', description: 'View SBOMs' },
   { name: 'SBOM_DELETE', description: 'Delete SBOMs' },
@@ -40,23 +42,28 @@ const ALL_PERMISSIONS: { name: PermissionName; description: string }[] = [
   { name: 'API_KEY_CREATE', description: 'Create API keys' },
   { name: 'API_KEY_READ', description: 'View API keys' },
   { name: 'API_KEY_DELETE', description: 'Delete API keys' },
+  { name: 'WEBHOOK_MANAGE', description: 'Create/edit/delete webhooks' },
+  { name: 'POLICY_MANAGE', description: 'Create/edit/delete scan policies' },
+  { name: 'LIVE_SCAN_CREATE', description: 'Use the live image gate' },
 ];
 
 const ROLE_PERMISSIONS: Record<RoleName, PermissionName[]> = {
-  SUPER_ADMIN: ALL_PERMISSIONS.map((p: { name: PermissionName; description: string }) => p.name),
+  SUPER_ADMIN: ALL_PERMISSIONS.map((p) => p.name),
   ADMIN: [
     'USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_DELETE',
     'ROLE_READ',
     'IMAGE_REGISTER', 'IMAGE_READ', 'IMAGE_DELETE',
     'SCAN_CREATE', 'SCAN_READ', 'SCAN_CANCEL',
-    'VULNERABILITY_READ', 'VULNERABILITY_EXPORT',
+    'VULNERABILITY_READ', 'VULNERABILITY_EXPORT', 'VULNERABILITY_ASSIGN',
     'SBOM_CREATE', 'SBOM_READ', 'SBOM_DELETE',
     'REPORT_CREATE', 'REPORT_READ', 'REPORT_DOWNLOAD', 'REPORT_DELETE',
     'NOTIFICATION_READ', 'NOTIFICATION_MANAGE',
     'AUDIT_LOG_READ',
     'JOB_READ', 'JOB_CANCEL',
     'API_KEY_CREATE', 'API_KEY_READ', 'API_KEY_DELETE',
-    'API_KEY_CREATE', 'API_KEY_READ', 'API_KEY_DELETE',
+    'WEBHOOK_MANAGE',
+    'POLICY_MANAGE',
+    'LIVE_SCAN_CREATE',
   ],
   DEVELOPER: [
     'USER_READ',
@@ -66,15 +73,16 @@ const ROLE_PERMISSIONS: Record<RoleName, PermissionName[]> = {
     'SBOM_CREATE', 'SBOM_READ',
     'REPORT_CREATE', 'REPORT_READ', 'REPORT_DOWNLOAD',
     'NOTIFICATION_READ',
+    'LIVE_SCAN_CREATE',
   ],
   SECURITY_ANALYST: [
     'USER_READ',
     'IMAGE_READ',
     'SCAN_READ',
-    'VULNERABILITY_READ', 'VULNERABILITY_EXPORT',
+    'VULNERABILITY_READ', 'VULNERABILITY_EXPORT', 'VULNERABILITY_ASSIGN', 'VULNERABILITY_EXCEPTION',
     'SBOM_READ',
     'REPORT_CREATE', 'REPORT_READ', 'REPORT_DOWNLOAD',
-    'NOTIFICATION_READ',
+    'NOTIFICATION_READ', 'NOTIFICATION_MANAGE',
     'AUDIT_LOG_READ', 'AUDIT_LOG_EXPORT',
   ],
   VIEWER: [
@@ -89,7 +97,7 @@ const ROLE_PERMISSIONS: Record<RoleName, PermissionName[]> = {
 };
 
 async function seed(): Promise<void> {
-  console.log('🌱 Starting database seed...');
+  console.log('Starting database seed...');
 
   console.log('Creating permissions...');
   for (const perm of ALL_PERMISSIONS) {
@@ -99,7 +107,7 @@ async function seed(): Promise<void> {
       create: { name: perm.name, description: perm.description },
     });
   }
-  console.log(`  ✓ ${ALL_PERMISSIONS.length} permissions created`);
+  console.log(`  ${ALL_PERMISSIONS.length} permissions created`);
 
   console.log('Creating roles...');
   for (const [roleName, perms] of Object.entries(ROLE_PERMISSIONS)) {
@@ -113,8 +121,9 @@ async function seed(): Promise<void> {
       },
     });
 
+    const uniquePerms = [...new Set(perms)];
     const permissionRecords = await prisma.permission.findMany({
-      where: { name: { in: perms } },
+      where: { name: { in: uniquePerms } },
     });
 
     for (const perm of permissionRecords) {
@@ -125,7 +134,48 @@ async function seed(): Promise<void> {
       });
     }
 
-    console.log(`  ✓ ${roleName} role created with ${perms.length} permissions`);
+    console.log(`  ${roleName} role created with ${uniquePerms.length} permissions`);
+  }
+
+  console.log('Creating default scan policies...');
+  const existingStrict = await prisma.scanPolicy.findUnique({ where: { name: 'strict' } });
+  if (!existingStrict) {
+    await prisma.scanPolicy.create({
+      data: {
+        name: 'strict',
+        description: 'Blocks on any CRITICAL or HIGH vulnerability. Zero tolerance policy.',
+        blockOnCritical: true,
+        blockOnHigh: true,
+        maxHighCount: 0,
+        maxMediumCount: 5,
+        slaCriticalDays: 3,
+        slaHighDays: 7,
+        slaMediumDays: 30,
+        registryPatterns: ['*'],
+        isDefault: false,
+      },
+    });
+    console.log('  strict policy created');
+  }
+
+  const existingStandard = await prisma.scanPolicy.findUnique({ where: { name: 'standard' } });
+  if (!existingStandard) {
+    await prisma.scanPolicy.create({
+      data: {
+        name: 'standard',
+        description: 'Blocks on CRITICAL only. Standard SLA for non-blocking severities.',
+        blockOnCritical: true,
+        blockOnHigh: false,
+        maxHighCount: -1,
+        maxMediumCount: -1,
+        slaCriticalDays: 7,
+        slaHighDays: 30,
+        slaMediumDays: 90,
+        registryPatterns: ['*'],
+        isDefault: true,
+      },
+    });
+    console.log('  standard policy created');
   }
 
   console.log('Creating admin user...');
@@ -150,8 +200,8 @@ async function seed(): Promise<void> {
     },
   });
 
-  console.log('  ✓ Admin user created: admin@fortifyci.local / Admin123!@#');
-  console.log('✅ Seed completed successfully');
+  console.log('  Admin user created: admin@fortifyci.local / Admin123!@#');
+  console.log('Seed completed successfully');
 }
 
 seed()

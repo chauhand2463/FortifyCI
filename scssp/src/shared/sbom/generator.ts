@@ -1,17 +1,163 @@
-import { getPrisma } from '@shared/database/prisma';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { getEnv } from '@shared/config/env';
 import { getLogger } from '@shared/utils/logger';
-import crypto from 'crypto';
+import type { RegistryCredential } from '@shared/scanner/trivy';
 
 const logger = getLogger();
 
 export interface SbomPackage {
   name: string;
   version: string;
-  supplier?: string;
-  licenses?: string[];
+  ecosystem: string;
   purl?: string;
-  type?: string;
-  checksum?: string;
+}
+
+function writeDockerConfig(credentials?: RegistryCredential | null): (() => void) | null {
+  if (!credentials || !credentials.username || !credentials.password) return null;
+
+  const dockerDir = path.join(os.homedir(), '.docker');
+  const configPath = path.join(dockerDir, 'config.json');
+  fs.mkdirSync(dockerDir, { recursive: true });
+
+  const serverAddress = credentials.serverAddress || 'https://index.docker.io/v1/';
+  const auth = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
+
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch {}
+
+  const auths = (existing.auths as Record<string, unknown>) || {};
+  auths[serverAddress] = { auth };
+
+  fs.writeFileSync(configPath, JSON.stringify({ ...existing, auths }, null, 2));
+  logger.info({ serverAddress }, 'Docker registry credentials configured for SBOM generation');
+
+  return () => {
+    try {
+      delete auths[serverAddress];
+      if (Object.keys(auths).length === 0) {
+        fs.unlinkSync(configPath);
+      } else {
+        fs.writeFileSync(configPath, JSON.stringify({ ...existing, auths }, null, 2));
+      }
+    } catch {}
+  };
+}
+
+export function generateTrivySbom(
+  imageRef: string,
+  format: 'cyclonedx' | 'spdx' = 'cyclonedx',
+  credentials?: RegistryCredential | null,
+): Promise<string> {
+  const env = getEnv();
+  const cleanup = writeDockerConfig(credentials);
+
+  const trivyFormat = format === 'spdx' ? 'spdx-json' : 'cyclonedx';
+
+  const args = [
+    'image',
+    '--format', trivyFormat,
+    '--cache-dir', path.resolve(env.TRIVY_CACHE_DIR),
+    '--timeout', `${env.TRIVY_TIMEOUT}ms`,
+    '--db-repository', env.TRIVY_DB_REPOSITORY,
+    '--java-db-repository', env.TRIVY_JAVA_DB_REPOSITORY,
+    imageRef,
+  ];
+
+  logger.info({ imageRef, format: trivyFormat }, 'Generating real SBOM with Trivy');
+
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(env.TRIVY_BIN_PATH, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: env.TRIVY_TIMEOUT + 10000,
+    });
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+    });
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
+
+    child.on('close', (code) => {
+      cleanup?.();
+
+      if (code === 0) {
+        const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+        try {
+          JSON.parse(stdout);
+          resolve(stdout);
+        } catch {
+          reject(new Error('Trivy SBOM output is not valid JSON'));
+        }
+      } else {
+        const stderr = Buffer.concat(stderrChunks).toString('utf8');
+        reject(new Error(stderr || `Trivy SBOM generation exited with code ${code}`));
+      }
+    });
+
+    child.on('error', (err) => {
+      cleanup?.();
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        reject(new Error(`Trivy binary not found at '${env.TRIVY_BIN_PATH}'.`));
+      } else {
+        reject(new Error(`Trivy SBOM generation failed: ${err.message}`));
+      }
+    });
+  });
+}
+
+export function extractPackagesFromSbom(sbomJson: any): SbomPackage[] {
+  const packages: SbomPackage[] = [];
+  const seen = new Set<string>();
+
+  if (sbomJson.bomFormat === 'CycloneDX') {
+    const components = sbomJson.components || [];
+    for (const comp of components) {
+      if (comp.type === 'container' || comp.type === 'application') continue;
+      const key = `${comp.name}@${comp.version}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        packages.push({
+          name: comp.name || '',
+          version: comp.version || '',
+          ecosystem: comp.type || 'library',
+          purl: comp.purl || null,
+        });
+      }
+    }
+  } else if (sbomJson.spdxVersion) {
+    const spdxPackages = sbomJson.packages || [];
+    for (const pkg of spdxPackages) {
+      if (pkg.SPDXID === 'SPDXRef-DOCUMENT') continue;
+      const name = pkg.name || '';
+      const version = pkg.versionInfo || '';
+      const key = `${name}@${version}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        let purl: string | null = null;
+        if (pkg.externalRefs) {
+          for (const ref of pkg.externalRefs) {
+            if (ref.referenceType === 'purl') {
+              purl = ref.referenceLocator;
+              break;
+            }
+          }
+        }
+        packages.push({ name, version, ecosystem: 'spdx', purl });
+      }
+    }
+  }
+
+  return packages;
 }
 
 export async function generateSpdxSbom(imageId: string): Promise<{
@@ -19,89 +165,21 @@ export async function generateSpdxSbom(imageId: string): Promise<{
   packageCount: number;
   version: string;
 }> {
+  const { getPrisma } = await import('@shared/database/prisma');
   const prisma = getPrisma();
   const image = await prisma.image.findUnique({ where: { id: imageId } });
   if (!image) throw new Error(`Image ${imageId} not found`);
 
   const imageRef = `${image.registry}/${image.repository}:${image.tag}`;
-  const sbomId = crypto.randomUUID();
-  const documentNamespace = `https://fortifyci.local/spdxdocs/${image.name}-${image.tag}-${Date.now()}`;
+  const raw = await generateTrivySbom(imageRef, 'spdx', image.registryCredentials as any);
+  const content = JSON.parse(raw);
 
-  const packages: Record<string, unknown>[] = [
-    {
-      SPDXID: `SPDXRef-${image.name.replace(/[^a-zA-Z0-9]/g, '-')}-${image.tag}`,
-      name: imageRef,
-      versionInfo: image.tag,
-      supplier: 'NOASSERTION',
-      downloadLocation: `https://${image.registry}/v2/${image.repository}/manifests/${image.tag}`,
-      filesAnalyzed: false,
-      licenseConcluded: 'NOASSERTION',
-      licenseDeclared: 'NOASSERTION',
-      copyrightText: 'NOASSERTION',
-      externalRefs: [
-        {
-          referenceCategory: 'PACKAGE-MANAGER',
-          referenceType: 'purl',
-          referenceLocator: `pkg:oci/${image.repository}@${image.tag}`,
-        },
-      ],
-    },
-  ];
+  const packages = extractPackagesFromSbom(content);
 
-  const scans = await prisma.scan.findMany({
-    where: { imageId, status: 'COMPLETED' },
-    include: { vulnerabilities: { select: { packageName: true, packageVersion: true, packageType: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 1,
-  });
-
-  if (scans.length > 0) {
-    const seen = new Set<string>();
-    for (const v of scans[0]!.vulnerabilities) {
-      const key = `${v.packageName}@${v.packageVersion}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        packages.push({
-          SPDXID: `SPDXRef-Package-${v.packageName.replace(/[^a-zA-Z0-9]/g, '-')}-${v.packageVersion}`,
-          name: v.packageName,
-          versionInfo: v.packageVersion,
-          supplier: 'NOASSERTION',
-          downloadLocation: 'NOASSERTION',
-          filesAnalyzed: false,
-          licenseConcluded: 'NOASSERTION',
-          licenseDeclared: 'NOASSERTION',
-          copyrightText: 'NOASSERTION',
-        });
-      }
-    }
-  }
-
-  const content = {
-    spdxVersion: 'SPDX-2.3',
-    dataLicense: 'CC0-1.0',
-    SPDXID: 'SPDXRef-DOCUMENT',
-    name: `${imageRef} SBOM`,
-    documentNamespace,
-    creationInfo: {
-      created: new Date().toISOString(),
-      creators: ['Tool: FortifyCI-1.0', 'Tool: Trivy'],
-      licenseListVersion: '3.23',
-    },
-    packages,
-    relationships: [
-      {
-        spdxElementId: 'SPDXRef-DOCUMENT',
-        relationshipType: 'DESCRIBES',
-        relatedSpdxElement: packages[0]!.SPDXID as string,
-      },
-    ],
-  };
-
-  logger.info({ imageId, packageCount: packages.length }, 'SPDX SBOM generated');
   return {
     content,
     packageCount: packages.length,
-    version: 'SPDX-2.3',
+    version: content.spdxVersion || 'SPDX-2.3',
   };
 }
 
@@ -110,68 +188,20 @@ export async function generateCycloneDxSbom(imageId: string): Promise<{
   packageCount: number;
   version: string;
 }> {
+  const { getPrisma } = await import('@shared/database/prisma');
   const prisma = getPrisma();
   const image = await prisma.image.findUnique({ where: { id: imageId } });
   if (!image) throw new Error(`Image ${imageId} not found`);
 
   const imageRef = `${image.registry}/${image.repository}:${image.tag}`;
+  const raw = await generateTrivySbom(imageRef, 'cyclonedx', image.registryCredentials as any);
+  const content = JSON.parse(raw);
 
-  const components: Record<string, unknown>[] = [
-    {
-      name: imageRef,
-      version: image.tag,
-      type: 'container',
-      'bom-ref': crypto.randomUUID(),
-      supplier: { name: image.registry },
-      properties: [
-        { name: 'fortifyci:imageId', value: image.id },
-        { name: 'fortifyci:registry', value: image.registry },
-        { name: 'fortifyci:digest', value: image.digest || '' },
-      ],
-    },
-  ];
+  const packages = extractPackagesFromSbom(content);
 
-  const scans = await prisma.scan.findMany({
-    where: { imageId, status: 'COMPLETED' },
-    include: { vulnerabilities: { select: { packageName: true, packageVersion: true, packageType: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 1,
-  });
-
-  if (scans.length > 0) {
-    const seen = new Set<string>();
-    for (const v of scans[0]!.vulnerabilities) {
-      const key = `${v.packageName}@${v.packageVersion}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        components.push({
-          name: v.packageName,
-          version: v.packageVersion,
-          type: v.packageType || 'library',
-          'bom-ref': crypto.randomUUID(),
-        });
-      }
-    }
-  }
-
-  const serialNumber = `urn:uuid:${crypto.randomUUID()}`;
-  const content = {
-    bomFormat: 'CycloneDX',
-    specVersion: '1.5',
-    serialNumber,
-    version: 1,
-    metadata: {
-      timestamp: new Date().toISOString(),
-      tools: [{ vendor: 'FortifyCI', name: 'fortifyci', version: '1.0.0' }],
-      component: components[0],
-    },
-    components,
-  };
-
-  logger.info({ imageId, componentCount: components.length }, 'CycloneDX SBOM generated');
   return {
     content,
-    packageCount: components.length,
-    version: '1.5',
+    packageCount: packages.length,
+    version: content.specVersion || '1.5',
   };
 }

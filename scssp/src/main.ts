@@ -11,6 +11,7 @@ import { connectDatabase, disconnectDatabase } from '@shared/database/prisma';
 import { connectRedis, disconnectRedis } from '@shared/database/redis';
 import { closeAllQueues } from '@shared/queue';
 import { startWorkers } from '@modules/job/application/worker';
+import { startCronJobs } from '@modules/cron/application/cron.service';
 import { collectMetrics } from '@shared/monitoring/metrics';
 
 import { authRoutes } from '@modules/auth/interfaces/auth.routes';
@@ -26,6 +27,15 @@ import { notificationRoutes } from '@modules/notification/interfaces/notificatio
 import { auditRoutes } from '@modules/audit/interfaces/audit.routes';
 import { dashboardRoutes } from '@modules/dashboard/interfaces/dashboard.routes';
 import { apiKeyRoutes } from '@modules/api-key/interfaces/api-key.routes';
+import { blastRadiusRoutes } from '@modules/blast-radius/interfaces/blast-radius.routes';
+import { diffRoutes } from '@modules/diff/interfaces/diff.routes';
+import { assignmentRoutes } from '@modules/assignment/interfaces/assignment.routes';
+import { exceptionRoutes } from '@modules/exception/interfaces/exception.routes';
+import { postureRoutes } from '@modules/posture/interfaces/posture.routes';
+import { policyRoutes } from '@modules/policy/interfaces/policy.routes';
+import { webhookRoutes } from '@modules/webhook/interfaces/webhook.routes';
+import { liveScanRoutes } from '@modules/live-scan/interfaces/live-scan.routes';
+import { nvdRoutes } from '@modules/nvd-watch/interfaces/nvd.routes';
 
 const logger = getLogger();
 
@@ -62,7 +72,7 @@ export async function buildApp() {
       info: {
         title: 'FortifyCI API',
         description: 'FortifyCI REST API for container security scanning, vulnerability management, SBOM generation, and reporting',
-        version: '1.0.0',
+        version: '2.0.0',
       },
       servers: [{ url: `http://localhost:${env.PORT}${env.API_PREFIX}` }],
       components: {
@@ -142,6 +152,15 @@ export async function buildApp() {
     api.register(auditRoutes, { prefix: '/audit-logs' });
     api.register(dashboardRoutes, { prefix: '/dashboard' });
     api.register(apiKeyRoutes, { prefix: '/api-keys' });
+    api.register(blastRadiusRoutes, { prefix: '/blast-radius' });
+    api.register(diffRoutes, { prefix: '/scans' });
+    api.register(assignmentRoutes, { prefix: '/assignments' });
+    api.register(exceptionRoutes, { prefix: '/exceptions' });
+    api.register(postureRoutes, { prefix: '/posture' });
+    api.register(policyRoutes, { prefix: '/policies' });
+    api.register(webhookRoutes, { prefix: '/webhooks' });
+    api.register(liveScanRoutes, { prefix: '/live-scan' });
+    api.register(nvdRoutes, { prefix: '/nvd-watch' });
   }, { prefix: apiPrefix });
 
   return app;
@@ -159,6 +178,7 @@ async function main() {
 
     if (env.NODE_ENV !== 'test') {
       await startWorkers();
+      await startCronJobs();
     }
 
     await app.listen({ port: env.PORT, host: env.HOST });

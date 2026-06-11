@@ -8,7 +8,64 @@ import { sendEmail } from '@shared/notifications/email';
 import { UnauthorizedError, ConflictError, ValidationError } from '@shared/errors';
 import type { RegisterDto, LoginDto, AuthResponse, TokenPair } from '../domain/auth.types';
 
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 export class AuthService {
+  private async createTokenPair(
+    user: { id: string; email: string; username: string; role: { name: string; permissions: { permission: { name: string } }[] } },
+  ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; permissions: string[] }> {
+    const permissions = user.role.permissions.map((rp) => rp.permission.name);
+    const tokenPayload = {
+      sub: user.id,
+      userId: user.id,
+      role: user.role.name,
+      permissions: permissions as string[],
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      generateAccessToken(tokenPayload),
+      generateRefreshToken(tokenPayload),
+    ]);
+
+    const env = getEnv();
+    const expiresIn = parseDuration(env.JWT_ACCESS_TOKEN_EXPIRY);
+
+    return { accessToken, refreshToken, expiresIn, permissions };
+  }
+
+  private async persistRefreshToken(userId: string, refreshToken: string): Promise<void> {
+    const env = getEnv();
+    const expiresAt = new Date(Date.now() + parseDuration(env.JWT_REFRESH_TOKEN_EXPIRY) * 1000);
+    const tokenHash = hashToken(refreshToken);
+
+    const prisma = getPrisma();
+    await prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash,
+        expiresAt,
+      },
+    });
+  }
+
+  private async revokeRefreshToken(tokenHash: string): Promise<void> {
+    const prisma = getPrisma();
+    await prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  private async revokeAllUserTokens(userId: string): Promise<void> {
+    const prisma = getPrisma();
+    await prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   async register(dto: RegisterDto, ipAddress?: string, userAgent?: string): Promise<AuthResponse> {
     const prisma = getPrisma();
 
@@ -30,40 +87,15 @@ export class AuthService {
       where: { name: 'VIEWER' },
       include: { permissions: { include: { permission: true } } },
     });
-
     if (!viewerRole) throw new ValidationError('Default role not found. Run seed first.');
 
     const user = await prisma.user.create({
-      data: {
-        email: dto.email,
-        username: dto.username,
-        passwordHash,
-        roleId: viewerRole.id,
-      },
-      include: {
-        role: {
-          include: { permissions: { include: { permission: true } } },
-        },
-      },
+      data: { email: dto.email, username: dto.username, passwordHash, roleId: viewerRole.id },
+      include: { role: { include: { permissions: { include: { permission: true } } } } },
     });
 
-    const permissions = user.role.permissions.map((rp) => rp.permission.name);
-    const tokenPayload = {
-      sub: user.id,
-      userId: user.id,
-      role: user.role.name,
-      permissions: permissions as string[],
-    };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      generateAccessToken(tokenPayload),
-      generateRefreshToken(tokenPayload),
-    ]);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken },
-    });
+    const { accessToken, refreshToken, expiresIn, permissions } = await this.createTokenPair(user);
+    await this.persistRefreshToken(user.id, refreshToken);
 
     await auditService.record({
       action: 'USER_REGISTERED',
@@ -74,9 +106,6 @@ export class AuthService {
       userAgent,
       userId: user.id,
     });
-
-    const envJwt = getEnv();
-    const expiresIn = parseDuration(envJwt.JWT_ACCESS_TOKEN_EXPIRY);
 
     return {
       accessToken,
@@ -97,11 +126,7 @@ export class AuthService {
 
     const user = await prisma.user.findUnique({
       where: { email: dto.email },
-      include: {
-        role: {
-          include: { permissions: { include: { permission: true } } },
-        },
-      },
+      include: { role: { include: { permissions: { include: { permission: true } } } } },
     });
 
     if (!user || !user.isActive) throw new UnauthorizedError('Invalid credentials');
@@ -109,22 +134,12 @@ export class AuthService {
     const valid = await argon2.verify(user.passwordHash, dto.password);
     if (!valid) throw new UnauthorizedError('Invalid credentials');
 
-    const permissions = user.role.permissions.map((rp) => rp.permission.name);
-    const tokenPayload = {
-      sub: user.id,
-      userId: user.id,
-      role: user.role.name,
-      permissions: permissions as string[],
-    };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      generateAccessToken(tokenPayload),
-      generateRefreshToken(tokenPayload),
-    ]);
+    const { accessToken, refreshToken, expiresIn, permissions } = await this.createTokenPair(user);
+    await this.persistRefreshToken(user.id, refreshToken);
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { refreshToken, lastLoginAt: new Date() },
+      data: { lastLoginAt: new Date() },
     });
 
     await auditService.record({
@@ -136,9 +151,6 @@ export class AuthService {
       userAgent,
       userId: user.id,
     });
-
-    const env = getEnv();
-    const expiresIn = parseDuration(env.JWT_ACCESS_TOKEN_EXPIRY);
 
     return {
       accessToken,
@@ -154,31 +166,50 @@ export class AuthService {
     };
   }
 
-  async refreshToken(refreshToken: string, ipAddress?: string, userAgent?: string): Promise<TokenPair> {
+  async refreshToken(refreshTokenJwt: string, ipAddress?: string, userAgent?: string): Promise<TokenPair> {
     const prisma = getPrisma();
 
     let payload: TokenPayload;
     try {
-      payload = await verifyToken(refreshToken);
+      payload = await verifyToken(refreshTokenJwt);
     } catch {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
     if (payload.type !== 'refresh') throw new UnauthorizedError('Invalid token type');
 
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
+    const tokenHash = hashToken(refreshTokenJwt);
+
+    const storedToken = await prisma.refreshToken.findFirst({
+      where: { tokenHash },
       include: {
-        role: {
-          include: { permissions: { include: { permission: true } } },
-        },
+        user: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
       },
     });
 
-    if (!user || !user.isActive || user.refreshToken !== refreshToken) {
-      throw new UnauthorizedError('Invalid refresh token');
+    if (!storedToken) throw new UnauthorizedError('Refresh token not found');
+
+    if (storedToken.revokedAt) {
+      await this.revokeAllUserTokens(storedToken.userId);
+      await auditService.record({
+        action: 'REPLAY_ATTACK_DETECTED',
+        entity: 'User',
+        entityId: storedToken.userId,
+        description: `Replay attack detected for user: ${storedToken.user.email}. All tokens revoked.`,
+        ipAddress,
+        userAgent,
+        userId: storedToken.userId,
+      });
+      throw new UnauthorizedError('Refresh token has been revoked');
     }
 
+    if (storedToken.expiresAt < new Date()) {
+      throw new UnauthorizedError('Refresh token has expired');
+    }
+
+    await this.revokeRefreshToken(tokenHash);
+
+    const user = storedToken.user;
     const permissions = user.role.permissions.map((rp) => rp.permission.name);
     const tokenPayload = {
       sub: user.id,
@@ -192,10 +223,7 @@ export class AuthService {
       generateRefreshToken(tokenPayload),
     ]);
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: newRefreshToken },
-    });
+    await this.persistRefreshToken(user.id, newRefreshToken);
 
     await auditService.record({
       action: 'TOKEN_REFRESHED',
@@ -213,20 +241,14 @@ export class AuthService {
   async forgotPassword(email: string): Promise<void> {
     const prisma = getPrisma();
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      // Don't reveal whether email exists
-      return;
-    }
+    if (!user) return;
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
 
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        passwordResetToken: token,
-        passwordResetExpires: expires,
-      },
+      data: { passwordResetToken: token, passwordResetExpires: expires },
     });
 
     const env = getEnv();
@@ -257,10 +279,7 @@ export class AuthService {
   async resetPassword(token: string, newPassword: string): Promise<void> {
     const prisma = getPrisma();
     const user = await prisma.user.findFirst({
-      where: {
-        passwordResetToken: token,
-        passwordResetExpires: { gte: new Date() },
-      },
+      where: { passwordResetToken: token, passwordResetExpires: { gte: new Date() } },
     });
 
     if (!user) throw new ValidationError('Invalid or expired reset token');
@@ -275,13 +294,10 @@ export class AuthService {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        passwordHash,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-        refreshToken: null,
-      },
+      data: { passwordHash, passwordResetToken: null, passwordResetExpires: null },
     });
+
+    await this.revokeAllUserTokens(user.id);
 
     await auditService.record({
       action: 'PASSWORD_RESET_COMPLETED',
@@ -291,18 +307,19 @@ export class AuthService {
     });
   }
 
-  async logout(userId: string, ipAddress?: string, userAgent?: string): Promise<void> {
-    const prisma = getPrisma();
-    await prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken: null },
-    });
+  async logout(userId: string, refreshTokenJwt?: string, ipAddress?: string, userAgent?: string): Promise<void> {
+    if (refreshTokenJwt) {
+      const tokenHash = hashToken(refreshTokenJwt);
+      await this.revokeRefreshToken(tokenHash);
+    } else {
+      await this.revokeAllUserTokens(userId);
+    }
 
     await auditService.record({
       action: 'USER_LOGOUT',
       entity: 'User',
       entityId: userId,
-      description: `User logged out`,
+      description: 'User logged out',
       ipAddress,
       userAgent,
       userId,
@@ -327,8 +344,10 @@ export class AuthService {
 
     await prisma.user.update({
       where: { id: userId },
-      data: { passwordHash, refreshToken: null },
+      data: { passwordHash },
     });
+
+    await this.revokeAllUserTokens(userId);
 
     await auditService.record({
       action: 'PASSWORD_CHANGED',

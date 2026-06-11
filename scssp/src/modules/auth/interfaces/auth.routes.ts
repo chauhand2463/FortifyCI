@@ -94,8 +94,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/logout', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const refreshTokenCookie = request.cookies?.refreshToken;
     await authService.logout(
       request.user!.userId,
+      refreshTokenCookie,
       request.ip,
       request.headers['user-agent'],
     );

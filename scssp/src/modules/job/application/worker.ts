@@ -1,19 +1,66 @@
-import { createWorker } from '@shared/queue';
+import { createWorker, getQueue } from '@shared/queue';
 import { getPrisma } from '@shared/database/prisma';
 import { getLogger } from '@shared/utils/logger';
 import { auditService } from '@modules/audit/application/audit.service';
-import { scanImage } from '@shared/scanner/trivy';
-import { generateSpdxSbom, generateCycloneDxSbom } from '@shared/sbom/generator';
+import { scanImage, cancelScanProcess, getActiveScanIds } from '@shared/scanner/trivy';
+import { generateSpdxSbom, generateCycloneDxSbom, generateTrivySbom } from '@shared/sbom/generator';
 import { generatePdfReport } from '@shared/reporting/pdf';
 import { generateCsvReport } from '@shared/reporting/csv';
 import { generateJsonReport } from '@shared/reporting/json';
 import { sendScanCompletedEmail } from '@shared/notifications/email';
+import { diffService } from '@modules/diff/application/diff.service';
+import { postureService } from '@modules/posture/application/posture.service';
+import { webhookService } from '@modules/webhook/application/webhook.service';
+import { assignmentService } from '@modules/assignment/application/assignment.service';
 
 const logger = getLogger();
 
+export async function cancelScan(scanId: string): Promise<boolean> {
+  const prisma = getPrisma();
+  const queue = getQueue('scan');
+
+  const killed = cancelScanProcess(scanId);
+  if (!killed) {
+    const jobs = await queue.getJobs(['active', 'waiting', 'delayed']);
+    for (const job of jobs) {
+      if (job.data.scanId === scanId) {
+        await job.remove();
+        return true;
+      }
+    }
+  }
+  return killed;
+}
+
+async function extractAndStorePackages(scanId: string, sbomJson: any): Promise<void> {
+  const prisma = getPrisma();
+  const packages: { name: string; version: string; ecosystem: string; purl: string | null }[] = [];
+
+  const results = sbomJson.Results || [];
+  for (const result of results) {
+    const pkgs = result.Packages || [];
+    for (const pkg of pkgs) {
+      packages.push({
+        name: pkg.Name || pkg.name || '',
+        version: pkg.Version || pkg.version || '',
+        ecosystem: result.Type || pkg.Ecosystem || pkg.ecosystem || 'unknown',
+        purl: pkg.PURL || pkg.purl || null,
+      });
+    }
+  }
+
+  if (packages.length > 0) {
+    await prisma.package.createMany({
+      data: packages.map((p) => ({ ...p, scanId })),
+      skipDuplicates: true,
+    });
+    logger.info({ scanId, packageCount: packages.length }, 'Packages extracted from SBOM');
+  }
+}
+
 async function processScanJob(job: any): Promise<void> {
   const { scanId, imageId } = job.data;
-  logger.info({ scanId, imageId }, 'Processing real scan job');
+  logger.info({ scanId, imageId }, 'Processing scan job');
 
   const prisma = getPrisma();
 
@@ -23,23 +70,45 @@ async function processScanJob(job: any): Promise<void> {
 
     await prisma.scan.update({
       where: { id: scanId },
-      data: { status: 'RUNNING', startedAt: new Date(), progress: 10 },
+      data: { status: 'RUNNING', startedAt: new Date(), progress: 10, jobId: job.id },
     });
 
     const imageRef = `${image.registry}/${image.repository}:${image.tag}`;
+    logger.info({ imageRef, hasCredentials: !!image.registryCredentials }, 'Starting Trivy SBOM generation');
+
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 20 } });
+
+    const credentials = image.registryCredentials as { username: string; password: string; serverAddress?: string } | null;
+
+    const sbomResult = await generateTrivySbom(imageRef, 'cyclonedx', credentials);
+    const sbomJson = JSON.parse(sbomResult);
+
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 40 } });
+
+    const sbomRecord = await prisma.sBOM.create({
+      data: {
+        imageId: image.id,
+        scanId,
+        userId: image.userId,
+        format: 'CYCLONEDX',
+        version: '1.0',
+        specVersion: '1.5',
+        content: sbomJson,
+        rawDocument: sbomJson,
+        packageCount: 0,
+      },
+    });
+
+    await extractAndStorePackages(scanId, sbomJson);
+
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 50 } });
+
     logger.info({ imageRef }, 'Starting Trivy vulnerability scan');
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 60 } });
 
-    await prisma.scan.update({
-      where: { id: scanId },
-      data: { progress: 30 },
-    });
+    const result = await scanImage(imageRef, credentials, scanId);
 
-    const result = await scanImage(imageRef);
-
-    await prisma.scan.update({
-      where: { id: scanId },
-      data: { progress: 70 },
-    });
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 80 } });
 
     const severityOrder: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
 
@@ -68,6 +137,11 @@ async function processScanJob(job: any): Promise<void> {
       });
     }
 
+    await prisma.sBOM.update({
+      where: { id: sbomRecord.id },
+      data: { packageCount: result.vulnerabilities.length },
+    });
+
     await prisma.scan.update({
       where: { id: scanId },
       data: { status: 'COMPLETED', completedAt: new Date(), progress: 100 },
@@ -80,6 +154,34 @@ async function processScanJob(job: any): Promise<void> {
       description: `Scan completed for ${imageRef}: ${result.vulnerabilities.length} vulnerabilities found`,
       metadata: { scanTime: result.scanTime, vulnCount: result.vulnerabilities.length },
     });
+
+    await diffService.computeAndStoreDiff(scanId).catch((err: any) => logger.warn({ err: err.message }, 'Diff computation failed'));
+
+    await postureService.computeSnapshot(scanId).catch((err: any) => logger.warn({ err: err.message }, 'Posture snapshot failed'));
+
+    await assignmentService.autoResolveByScan(scanId).catch((err: any) => logger.warn({ err: err.message }, 'Auto-resolve assignments failed'));
+
+    const scanDiff = await prisma.scanDiff.findUnique({ where: { scanId } });
+    const isRegression = scanDiff?.regressionDetected || false;
+
+    if (isRegression) {
+      await webhookService.deliverEvent('scan.regression_detected', {
+        scanId,
+        imageRef,
+        deltaScore: scanDiff.deltaScore,
+        introducedCount: scanDiff.introducedCount,
+      }).catch(() => {});
+    }
+
+    await webhookService.deliverEvent('scan.completed', {
+      scanId,
+      imageRef,
+      status: 'COMPLETED',
+      criticalCount: result.vulnerabilities.filter((v: any) => v.severity === 'CRITICAL').length,
+      highCount: result.vulnerabilities.filter((v: any) => v.severity === 'HIGH').length,
+      regressionDetected: isRegression,
+      postureScore: 0,
+    }).catch(() => {});
 
     const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0, total: result.vulnerabilities.length };
     for (const v of result.vulnerabilities) {
@@ -107,6 +209,16 @@ async function processScanJob(job: any): Promise<void> {
 
     logger.info({ scanId, vulnCount: result.vulnerabilities.length, scanTime: result.scanTime }, 'Scan completed');
   } catch (error: any) {
+    if (error.message === 'Scan was cancelled' || error.message.includes('cancelled')) {
+      logger.info({ scanId }, 'Scan was cancelled, not retrying');
+      const prisma = getPrisma();
+      await prisma.scan.update({
+        where: { id: scanId },
+        data: { status: 'CANCELLED', completedAt: new Date(), errorMessage: 'Scan cancelled by user' },
+      });
+      return;
+    }
+
     logger.error({ scanId, error: error.message }, 'Scan failed');
 
     const prisma = getPrisma();
@@ -114,7 +226,7 @@ async function processScanJob(job: any): Promise<void> {
     const maxRetries = scan?.maxRetries ?? 3;
     const retryCount = scan?.retryCount ?? 0;
 
-    if (retryCount < maxRetries) {
+    if (retryCount < maxRetries && scan?.status !== 'CANCELLED') {
       await prisma.scan.update({
         where: { id: scanId },
         data: { retryCount: retryCount + 1, errorMessage: error.message },
@@ -139,20 +251,27 @@ async function processScanJob(job: any): Promise<void> {
 
 async function processSbomJob(job: any): Promise<void> {
   const { sbomId, imageId, format } = job.data;
-  logger.info({ sbomId, imageId, format }, 'Processing real SBOM generation job');
+  logger.info({ sbomId, imageId, format }, 'Processing SBOM job');
+
+  const prisma = getPrisma();
 
   try {
-    const prisma = getPrisma();
-    const generator = format === 'CYCLONEDX' ? generateCycloneDxSbom : generateSpdxSbom;
+    const sbom = await prisma.sBOM.findUnique({ where: { id: sbomId } });
+    if (!sbom) throw new Error('SBOM record not found');
 
-    const result = await generator(imageId);
+    const image = await prisma.image.findUnique({ where: { id: imageId } });
+    if (!image) throw new Error('Image not found');
 
+    const imageRef = `${image.registry}/${image.repository}:${image.tag}`;
+    const data = await generateTrivySbom(imageRef, format.toLowerCase(), image.registryCredentials as any);
+
+    const parsed = JSON.parse(data);
     await prisma.sBOM.update({
       where: { id: sbomId },
       data: {
-        content: result.content as any,
-        packageCount: result.packageCount,
-        version: result.version,
+        content: parsed,
+        rawDocument: parsed,
+        specVersion: parsed.specVersion || parsed.bomFormat || '1.5',
       },
     });
 
@@ -160,11 +279,10 @@ async function processSbomJob(job: any): Promise<void> {
       action: 'SBOM_GENERATED',
       entity: 'SBOM',
       entityId: sbomId,
-      description: `SBOM generated in ${format} format with ${result.packageCount} packages`,
-      metadata: { format, packageCount: result.packageCount },
+      description: `SBOM generated for ${imageRef}`,
     });
 
-    logger.info({ sbomId, format, packageCount: result.packageCount }, 'SBOM generated successfully');
+    logger.info({ sbomId, imageRef }, 'SBOM generated successfully');
   } catch (error: any) {
     logger.error({ sbomId, error: error.message }, 'SBOM generation failed');
     throw error;
@@ -172,44 +290,22 @@ async function processSbomJob(job: any): Promise<void> {
 }
 
 async function processReportJob(job: any): Promise<void> {
-  const { reportId, format } = job.data;
-  logger.info({ reportId, format }, 'Processing real report generation job');
+  const { reportId, scanId, imageId, title, format } = job.data;
+  logger.info({ reportId, scanId, imageId, format }, 'Processing report job');
+
+  const prisma = getPrisma();
 
   try {
-    const prisma = getPrisma();
+    const generators: Record<string, (title: string, scanId: string, imageId: string, params?: any) => Promise<{ filePath: string; fileSize: number }>> = {
+      pdf: generatePdfReport,
+      csv: generateCsvReport,
+      json: generateJsonReport,
+    };
 
-    const report = await prisma.report.findUnique({ where: { id: reportId } });
-    if (!report) throw new Error('Report not found');
+    const generator = generators[format.toLowerCase()];
+    if (!generator) throw new Error(`Unsupported report format: ${format}`);
 
-    await prisma.report.update({
-      where: { id: reportId },
-      data: { status: 'GENERATING' },
-    });
-
-    let result: { filePath: string; fileSize: number };
-
-    if (format === 'PDF') {
-      result = await generatePdfReport(
-        report.title,
-        report.scanId,
-        report.imageId,
-        report.parameters as Record<string, unknown> | undefined,
-      );
-    } else if (format === 'JSON') {
-      result = await generateJsonReport(
-        report.title,
-        report.scanId,
-        report.imageId,
-        report.parameters as Record<string, unknown> | undefined,
-      );
-    } else {
-      result = await generateCsvReport(
-        report.title,
-        report.scanId,
-        report.imageId,
-        report.parameters as Record<string, unknown> | undefined,
-      );
-    }
+    const result = await generator(title, scanId, imageId);
 
     await prisma.report.update({
       where: { id: reportId },
@@ -221,21 +317,16 @@ async function processReportJob(job: any): Promise<void> {
       },
     });
 
-    await prisma.notification.create({
-      data: {
-        type: 'REPORT_READY',
-        channel: 'EMAIL',
-        subject: `Report Ready - ${report.title}`,
-        body: `Your ${format} report "${report.title}" has been generated and is ready for download.`,
-        metadata: { reportId, format, fileSize: result.fileSize },
-        userId: report.userId,
-      },
+    await auditService.record({
+      action: 'REPORT_GENERATED',
+      entity: 'Report',
+      entityId: reportId,
+      description: `Report generated: ${title}`,
     });
 
-    logger.info({ reportId, format, fileSize: result.fileSize }, 'Report generated successfully');
+    logger.info({ reportId, format }, 'Report generated successfully');
   } catch (error: any) {
     logger.error({ reportId, error: error.message }, 'Report generation failed');
-    const prisma = getPrisma();
     await prisma.report.update({
       where: { id: reportId },
       data: { status: 'FAILED' },
@@ -243,12 +334,105 @@ async function processReportJob(job: any): Promise<void> {
   }
 }
 
+async function processLiveScanJob(job: any): Promise<void> {
+  const { liveScanId, imageRef, policyId, registryCredentials, userId } = job.data;
+  const logger = getLogger();
+  const prisma = getPrisma();
+
+  try {
+    await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'PULLING', progress: 10 } });
+
+    const { generateTrivySbom } = await import('@shared/sbom/generator');
+    const sbomResult = await generateTrivySbom(imageRef, 'cyclonedx', registryCredentials || null);
+    const sbomJson = JSON.parse(sbomResult);
+
+    await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'SCANNING', progress: 40 } });
+
+    const { scanImage } = await import('@shared/scanner/trivy');
+    const result = await scanImage(imageRef, registryCredentials || null, liveScanId);
+
+    await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'EVALUATING', progress: 70 } });
+
+    const { policyService } = await import('@modules/policy/application/policy.service');
+    const evaluation = policyId
+      ? await policyService.evaluate(result.imageId || '', policyId)
+      : { passed: true, reason: 'No policy evaluation', blockingCVEs: [], policyName: '' };
+
+    if (evaluation.passed) {
+      const { getMinioClient } = await import('@shared/storage/minio');
+      const { getEnv } = await import('@shared/config/env');
+      const minio = getMinioClient();
+      const env = getEnv();
+      const tarballKey = `live-scans/${liveScanId}.tar.gz`;
+      await minio.putObject(env.MINIO_BUCKET, tarballKey, JSON.stringify({ imageRef, vulnerabilities: result.vulnerabilities }));
+
+      const presignedUrl = await minio.presignedGetObject(env.MINIO_BUCKET, tarballKey, 60 * 60);
+
+      await prisma.liveScan.update({
+        where: { id: liveScanId },
+        data: {
+          status: 'PASSED', passed: true, progress: 100,
+          downloadUrl: presignedUrl, downloadExpiry: new Date(Date.now() + 60 * 60 * 1000),
+          completedAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.liveScan.update({
+        where: { id: liveScanId },
+        data: {
+          status: 'BLOCKED', passed: false, progress: 100,
+          blockingReason: evaluation.reason,
+          completedAt: new Date(),
+        },
+      });
+    }
+  } catch (error: any) {
+    logger.error({ liveScanId, error: error.message }, 'Live scan failed');
+    await prisma.liveScan.update({
+      where: { id: liveScanId },
+      data: { status: 'FAILED', blockingReason: error.message, completedAt: new Date() },
+    });
+  }
+}
+
 export async function startWorkers(): Promise<void> {
-  logger.info('Starting real FortifyCI background workers');
+  logger.info('Starting FortifyCI background workers');
+
+  const prisma = getPrisma();
+
+  const orphaned = await prisma.scan.findMany({
+    where: { status: 'RUNNING' },
+  });
+
+  for (const scan of orphaned) {
+    const age = Date.now() - (scan.startedAt?.getTime() ?? Date.now());
+    logger.warn({ scanId: scan.id, age: `${Math.round(age / 1000)}s` }, 'Reconciling orphaned scan');
+
+    await prisma.scan.update({
+      where: { id: scan.id },
+      data: {
+        status: age > 300000 ? 'FAILED' : 'CANCELLED',
+        completedAt: new Date(),
+        errorMessage: 'Worker restarted - scan orphaned',
+      },
+    });
+
+    await auditService.record({
+      action: 'SCAN_ORPHANED',
+      entity: 'Scan',
+      entityId: scan.id,
+      description: `Scan marked as orphaned during worker startup`,
+    });
+  }
+
+  if (orphaned.length > 0) {
+    logger.info({ count: orphaned.length }, 'Reconciled orphaned scans');
+  }
 
   createWorker('scan', processScanJob);
   createWorker('sbom', processSbomJob);
   createWorker('report', processReportJob);
+  createWorker('live-scan', processLiveScanJob);
 
-  logger.info('All workers started - ready to process real jobs');
+  logger.info('All workers started');
 }

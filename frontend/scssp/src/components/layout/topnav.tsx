@@ -18,7 +18,7 @@ export function TopNav() {
   const menuRef = useRef<HTMLDivElement>(null)
   const { open: openCommandPalette } = useCommandPalette()
   const router = useRouter()
-  const unreadCount = notifications?.filter(n => !n.read).length ?? 0
+  const unreadCount = notifications?.filter(n => !n.isRead).length ?? 0
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {

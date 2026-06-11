@@ -1,33 +1,10 @@
 import type { ContainerImage, Scan, Vulnerability, Report, Notification, ScanStatistics, SBOMEntry, PaginatedResponse, User, ImageDetail } from '@/types'
+import { getAccessToken, refreshAccessToken } from '@/store'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = localStorage.getItem('auth-store')
-    if (!raw) return null
-    return JSON.parse(raw)?.state?.token || null
-  } catch {
-    return null
-  }
-}
-
-function setToken(token: string): void {
-  try {
-    const raw = localStorage.getItem('auth-store')
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed?.state) {
-        parsed.state.token = token
-        localStorage.setItem('auth-store', JSON.stringify(parsed))
-      }
-    }
-  } catch {}
-}
-
-async function apiRequest<T = any>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
-  const token = getToken()
+async function apiRequest<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getAccessToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -42,26 +19,25 @@ async function apiRequest<T = any>(path: string, options: RequestInit = {}, retr
   const body = await res.json()
 
   if (!res.ok) {
-    if (res.status === 401 && retry) {
-      try {
-        const refreshRes = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-        })
-        if (refreshRes.ok) {
-          const refreshBody = await refreshRes.json()
-          if (refreshBody.success && refreshBody.data?.accessToken) {
-            setToken(refreshBody.data.accessToken)
-            return apiRequest<T>(path, options, false)
+    if (res.status === 401 && token) {
+      const newToken = await refreshAccessToken()
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`
+        const retryRes = await fetch(url, { ...options, headers })
+        if (retryRes.status === 204) return undefined as T
+        if (retryRes.ok) {
+          const retryBody = await retryRes.json()
+          if (retryBody.success !== undefined && !retryBody.success) {
+            throw new Error(retryBody?.error?.message || 'Request failed')
           }
+          return retryBody as T
         }
-      } catch {}
+      }
       if (typeof window !== 'undefined') {
         window.location.href = '/login'
       }
     }
-    const message = body?.error?.message || (res.status === 403 ? 'You do not have permission to perform this action. Contact your admin.' : `Request failed: ${res.status}`)
+    const message = body?.error?.message || (res.status === 403 ? 'You do not have permission to perform this action.' : `Request failed: ${res.status}`)
     throw new Error(message)
   }
 
@@ -73,213 +49,207 @@ async function apiRequest<T = any>(path: string, options: RequestInit = {}, retr
 }
 
 function toLowerSeverity(s: string): string {
-  if (s === 'NONE') return 'none'
-  return s.toLowerCase()
+  const map: Record<string, string> = { CRITICAL: 'critical', HIGH: 'high', MEDIUM: 'medium', LOW: 'low', UNKNOWN: 'unknown' }
+  return map[s] || s.toLowerCase()
 }
 
 function toLowerStatus(s: string): string {
-  return s.toLowerCase()
+  const map: Record<string, string> = { PENDING: 'pending', QUEUED: 'queued', RUNNING: 'running', COMPLETED: 'completed', FAILED: 'failed', CANCELLED: 'cancelled', TIMEOUT: 'timeout' }
+  return map[s] || s.toLowerCase()
 }
 
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null || bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++ }
-  return `${size.toFixed(1)} ${units[i]}`
+function formatBytes(b: number): string {
+  if (b === 0) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(b) / Math.log(1024))
+  return `${(b / Math.pow(1024, i)).toFixed(1)} ${u[i]}`
 }
 
-function computeDuration(startedAt: string | null, completedAt: string | null): string | null {
-  if (!startedAt || !completedAt) return null
-  const diffMs = new Date(completedAt).getTime() - new Date(startedAt).getTime()
-  if (diffMs < 0) return null
-  const mins = Math.floor(diffMs / 60000)
-  const secs = Math.floor((diffMs % 60000) / 1000)
-  return `${mins}m ${secs}s`
+function computeDuration(start: string | Date, end: string | Date): number {
+  return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000)
 }
 
 interface BackendScan {
-  id: string
-  imageId: string
-  imageName: string
-  scanType: string
-  status: string
-  progress: number
-  errorMessage: string | null
-  startedAt: string | null
-  completedAt: string | null
-  retryCount: number
-  maxRetries: number
-  metadata: Record<string, unknown> | null
-  vulnerabilitiesCount: number
-  criticalCount: number
-  highCount: number
-  mediumCount: number
-  lowCount: number
-  createdAt: string
-  updatedAt: string
+  id: string; imageId: string; imageName: string; scanType: string
+  status: string; progress: number; errorMessage: string | null
+  startedAt: string | null; completedAt: string | null
+  retryCount: number; maxRetries: number
+  vulnerabilitiesCount: number; criticalCount: number; highCount: number; mediumCount: number; lowCount: number
+  createdAt: string; updatedAt: string
 }
 
 interface BackendImage {
-  id: string
-  name: string
-  tag: string
-  digest: string | null
-  registry: string
-  repository: string
-  architecture: string | null
-  os: string | null
-  size: number | null
-  mediaType: string | null
-  isSigned: boolean
-  labels: Record<string, unknown> | null
-  userId: string
-  createdAt: string
-  updatedAt: string
+  id: string; name: string; tag: string; registry: string; repository: string
+  digest: string | null; architecture: string | null; os: string | null
+  size: number | null; mediaType: string | null
+  createdAt: string; updatedAt: string
+  lastScanStatus: string | null; lastScanId: string | null
+  vulnerabilitySummary: { critical: number; high: number; medium: number; low: number; unknown: number }
 }
 
-function transformImage(img: BackendImage, scans: BackendScan[]): ContainerImage {
-  const imageScans = scans.filter(s => s.imageId === img.id)
-  const latestScan = imageScans.length > 0
-    ? imageScans.reduce((a, b) => new Date(a.createdAt) > new Date(b.createdAt) ? a : b)
-    : null
-
-  let status: ContainerImage['status'] = 'clean'
-  if (latestScan) {
-    const s = latestScan.status.toUpperCase()
-    if (s === 'COMPLETED') {
-      status = latestScan.vulnerabilitiesCount > 0 ? 'vulnerable' : 'clean'
-    } else if (['RUNNING', 'QUEUED', 'PENDING'].includes(s)) {
-      status = 'scanning'
-    } else if (['FAILED', 'CANCELLED', 'TIMEOUT'].includes(s)) {
-      status = 'error'
-    }
-  }
-
+function transformImage(b: any): ImageDetail {
+  const summary = b.vulnerabilitySummary || { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 }
   return {
-    id: img.id,
-    name: img.name,
-    tag: img.tag,
-    digest: img.digest || '',
-    size: formatBytes(img.size),
-    status,
-    vulnerabilities: {
-      critical: latestScan?.criticalCount ?? 0,
-      high: latestScan?.highCount ?? 0,
-      medium: latestScan?.mediumCount ?? 0,
-      low: latestScan?.lowCount ?? 0,
-    },
-    lastScanned: latestScan?.completedAt || latestScan?.createdAt || '',
-    createdAt: img.createdAt,
-    updatedAt: img.updatedAt,
-    registry: img.registry,
-    repository: img.repository,
-    architecture: img.architecture,
-    os: img.os,
-    mediaType: img.mediaType,
-    isSigned: img.isSigned,
-    labels: img.labels as Record<string, string> | null,
+    id: b.id, name: b.name, tag: b.tag, registry: b.registry, repository: b.repository,
+    isSigned: b.isSigned ?? false,
+    digest: b.digest || null, architecture: b.architecture || null, os: b.os || null,
+    size: b.size ? formatBytes(Number(b.size)) : null,
+    mediaType: b.mediaType || null,
+    createdAt: b.createdAt, updatedAt: b.updatedAt,
+    lastScanStatus: toLowerStatus(b.lastScanStatus || ''),
+    lastScanId: b.lastScanId || undefined,
+    vulnerabilitySummary: summary,
   }
 }
 
-function transformScan(s: BackendScan): Scan {
+function transformScan(b: any): Scan {
   return {
-    id: s.id,
-    imageId: s.imageId,
-    imageName: s.imageName,
-    status: toLowerStatus(s.status) as Scan['status'],
-    progress: s.progress,
-    totalVulnerabilities: s.vulnerabilitiesCount,
-    criticalCount: s.criticalCount ?? 0,
-    highCount: s.highCount ?? 0,
-    mediumCount: s.mediumCount ?? 0,
-    lowCount: s.lowCount ?? 0,
-    startedAt: s.startedAt || '',
-    completedAt: s.completedAt,
-    duration: computeDuration(s.startedAt, s.completedAt),
-    scanner: `${s.scanType} v${(s.metadata as any)?.version || ''}`.trim() || s.scanType,
+    id: b.id, imageId: b.imageId, imageName: b.imageName, scanType: b.scanType,
+    status: toLowerStatus(b.status),
+    progress: b.progress, errorMessage: b.errorMessage || undefined,
+    startedAt: b.startedAt || undefined, completedAt: b.completedAt || undefined,
+    retryCount: b.retryCount, maxRetries: b.maxRetries,
+    vulnerabilitiesCount: b.vulnerabilitiesCount,
+    criticalCount: b.criticalCount, highCount: b.highCount, mediumCount: b.mediumCount, lowCount: b.lowCount,
+    createdAt: b.createdAt, updatedAt: b.updatedAt,
   }
 }
 
-function transformVulnerability(v: any): Vulnerability {
+function transformVulnerability(b: any): Vulnerability {
   return {
-    id: v.id,
-    cveId: v.vulnerabilityId || v.cveId || '',
-    package: v.packageName || v.package || '',
-    version: v.packageVersion || v.version || '',
-    severity: toLowerSeverity(v.severity) as Vulnerability['severity'],
-    cvss: v.cvssScore ?? v.cvss ?? 0,
-    description: v.description || v.title || '',
-    fixVersion: v.fixedVersion || null,
-    publishedAt: v.publishedDate || v.publishedAt || v.createdAt || '',
-    isFixed: v.fixedVersion != null,
-    exploitAvailable: v.exploitAvailable ?? false,
+    id: b.id, cveId: b.vulnerabilityId || b.cveId,
+    package: b.packageName || b.package, version: b.packageVersion || b.version,
+    severity: toLowerSeverity(b.severity), cvss: b.cvssScore ?? b.cvss ?? 0,
+    title: b.title || undefined, description: b.description || undefined,
+    fixVersion: b.fixedVersion || b.fixVersion || undefined,
+    publishedAt: b.publishedDate || b.publishedAt || undefined,
+    source: b.source || 'trivy',
+    exploitAvailable: b.exploitAvailable ?? undefined,
+    isFixed: !!(b.fixedVersion || b.fixVersion),
+    scanId: b.scanId,
   }
 }
 
-function transformNotification(n: any): Notification {
+function transformNotification(b: any): Notification {
   return {
-    id: n.id,
-    type: (n.type?.toLowerCase() === 'scan_completed' ? 'scan_complete' : n.type?.toLowerCase()) as Notification['type'],
-    title: n.subject || n.title || '',
-    message: n.body || n.message || '',
-    severity: (n.metadata?.severity || 'low').toLowerCase() as Notification['severity'],
-    read: n.isRead ?? n.read ?? false,
-    createdAt: n.createdAt || n.sentAt || '',
-    link: n.metadata?.link || null,
+    id: b.id, type: b.type, channel: b.channel,
+    subject: b.subject, body: b.body,
+    isRead: b.isRead, sentAt: b.sentAt || undefined,
+    createdAt: b.createdAt,
   }
 }
 
-function transformReport(r: any): Report {
-  const s = (r.status || '').toUpperCase()
-  const status: Report['status'] = s === 'COMPLETED' ? 'ready' : s === 'FAILED' ? 'failed' : 'generating'
+function transformReport(b: any): Report {
   return {
-    id: r.id,
-    title: r.title,
-    type: (r.parameters?.type || (r.format === 'pdf' ? 'vulnerability' : 'custom')) as Report['type'],
-    format: r.format?.toLowerCase() as Report['format'],
-    status,
-    createdAt: r.createdAt,
-    generatedAt: r.generatedAt || null,
-    size: r.fileSize ? formatBytes(r.fileSize) : null,
-    downloadUrl: r.filePath ? `/api/v1/reports/${r.id}/download` : null,
+    id: b.id, title: b.title, type: b.type,
+    format: b.format.toLowerCase(),
+    status: b.status.toLowerCase(), filePath: b.filePath || undefined,
+    fileSize: b.fileSize ?? undefined, generatedAt: b.generatedAt || undefined,
+    createdAt: b.createdAt,
   }
 }
 
-function transformUser(u: any): User {
-  return {
-    id: u.id,
-    email: u.email,
-    name: u.username || u.name || '',
-    role: (u.role?.name?.toLowerCase() === 'super_admin' || u.role?.name?.toLowerCase() === 'admin'
-      ? 'admin'
-      : u.role?.name?.toLowerCase() === 'developer'
-        ? 'developer'
-        : 'viewer') as User['role'],
-    permissions: u.permissions || [],
-    avatar: null,
-  }
+function transformUser(b: any): User {
+  return { id: b.id, email: b.email, name: b.username, role: b.role.toLowerCase(), permissions: b.permissions || [], avatar: b.avatar || null }
 }
-
-let scansCache: BackendScan[] = []
 
 export const services = {
   async logout() {
     try {
-      await apiRequest('/api/v1/auth/logout', { method: 'POST' }, false)
+      await apiRequest('/api/v1/auth/logout', { method: 'POST' }, )
     } catch {}
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth-store')
-    }
   },
 
-  async registerImage(name: string, tag: string, registry: string, repository: string) {
+  async login(email: string, password: string) {
+    const body = await apiRequest<{ success: boolean; data: { accessToken: string; expiresIn: number; user: any } }>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })
+    const user = transformUser(body.data.user)
+    return { token: body.data.accessToken, user }
+  },
+
+  async register(email: string, name: string, password: string) {
+    const body = await apiRequest<{ success: boolean; data: { accessToken: string; expiresIn: number; user: any } }>('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, username: name, password }),
+    })
+    const user = transformUser(body.data.user)
+    return { token: body.data.accessToken, user }
+  },
+
+  async forgotPassword(email: string) {
+    await apiRequest('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  },
+
+  async resetPassword(token: string, password: string) {
+    await apiRequest('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    })
+  },
+
+  async getStatistics() {
+    const body = await apiRequest<{ success: boolean; data: ScanStatistics }>('/api/v1/dashboard/stats')
+    return body.data
+  },
+
+  async getChartData() {
+    const body = await apiRequest<{ success: boolean; data: { vulnerabilitySeverity: { name: string; value: number; color: string }[]; scanTrend: { date: string; scans: number; vulnerabilities: number }[]; monthlySecurity: { month: string; critical: number; high: number; medium: number; low: number }[] } }>('/api/v1/dashboard/chart')
+    return body.data
+  },
+
+  async getImages(page = 1, limit = 100, search = '') {
+    const query = `page=${page}&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number; page: number; limit: number; totalPages: number }>(
+      `/api/v1/images?${query}`,
+    )
+    return { items: body.items.map(transformImage), total: body.total, page: body.page, limit: body.limit, totalPages: body.totalPages }
+  },
+
+  async getImage(id: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/images/${id}`)
+    return transformImage(body.data)
+  },
+
+  async getImageDetail(id: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/images/${id}`)
+    return body.data
+  },
+
+  async registerImage(name: string, tag: string, registry: string, repository: string, registryCredentials?: { username: string; password: string; serverAddress?: string }) {
     const body = await apiRequest<{ success: boolean; data: { id: string } }>('/api/v1/images', {
       method: 'POST',
-      body: JSON.stringify({ name, tag, registry, repository }),
+      body: JSON.stringify({ name, tag, registry, repository, registryCredentials }),
     })
     return body.data
+  },
+
+  async deleteImage(id: string) {
+    await apiRequest(`/api/v1/images/${id}`, { method: 'DELETE' })
+  },
+
+  async getScans(page = 1, limit = 100, status?: string) {
+    const qs = `page=${page}&limit=${limit}${status ? `&status=${status}` : ''}`
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number; page: number; limit: number; totalPages: number }>(
+      `/api/v1/scans?${qs}`,
+    )
+    return { items: body.items.map(transformScan), total: body.total, page: body.page, limit: body.limit, totalPages: body.totalPages }
+  },
+
+  async getScansByImageId(imageId: string) {
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number }>(
+      `/api/v1/scans?imageId=${imageId}&limit=100`,
+    )
+    return body.items.map(transformScan)
+  },
+
+  async getScan(id: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/scans/${id}`)
+    return transformScan(body.data)
   },
 
   async createScan(imageId: string, scanType = 'trivy') {
@@ -290,337 +260,367 @@ export const services = {
     return body.data
   },
 
-  async login(email: string, password: string) {
-    const body = await apiRequest<{ success: boolean; data: { accessToken: string; expiresIn: number; user: any } }>('/api/v1/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    }, false)
-    const user = transformUser(body.data.user)
-    return { token: body.data.accessToken, user }
+  async cancelScan(id: string) {
+    await apiRequest(`/api/v1/scans/${id}/cancel`, { method: 'POST' })
   },
 
-  async register(email: string, name: string, password: string) {
-    const body = await apiRequest<{ success: boolean; data: { accessToken: string; expiresIn: number; user: any } }>('/api/v1/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, username: name, password }),
-    }, false)
-    const user = transformUser(body.data.user)
-    return { token: body.data.accessToken, user }
+  async getVulnerabilities(page = 1, limit = 20, severity?: string, search?: string) {
+    const qs = `page=${page}&limit=${limit}${severity && severity !== 'all' ? `&severity=${severity.toUpperCase()}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number; page: number; limit: number; totalPages: number }>(`/api/v1/vulnerabilities?${qs}`)
+    return { items: body.items.map(transformVulnerability), total: body.total, page: body.page, limit: body.limit, totalPages: body.totalPages }
   },
 
-  async forgotPassword(email: string) {
-    const body = await apiRequest<{ success: boolean; message: string }>('/api/v1/auth/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    }, false)
-    return { message: body.message || 'Password reset link sent to your email' }
+  async getVulnerability(id: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/vulnerabilities/${id}`)
+    return transformVulnerability(body.data)
   },
 
-  async resetPassword(token: string, password: string) {
-    const body = await apiRequest<{ success: boolean; message: string }>('/api/v1/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ token, password }),
-    }, false)
-    return { message: body.message || 'Password reset successfully' }
+  async getVulnerabilityByCve(cveId: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/vulnerabilities/cve/${cveId}`)
+    return transformVulnerability(body.data)
   },
 
-  async getStatistics() {
-    // Check if we have a dashboard endpoint
-    try {
-      const body = await apiRequest<{ success: boolean; data: { stats: ScanStatistics } }>('/api/v1/dashboard')
-      return body.data.stats
-    } catch {
-      // Fallback: aggregate from images and scans
-      const [imgBody, scansBody] = await Promise.all([
-        apiRequest<{ success: boolean; items: any[]; total: number }>('/api/v1/images?limit=10000'),
-        apiRequest<{ success: boolean; items: BackendScan[] }>('/api/v1/scans?limit=10000').catch(() => ({ success: false, items: [] })),
-      ])
-
-      const scans = (scansBody as any)?.items || []
-      const images = imgBody.items || []
-      const totalVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.vulnerabilitiesCount || 0), 0)
-      const criticalVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.criticalCount || 0), 0)
-      const highVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.highCount || 0), 0)
-      const mediumVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.mediumCount || 0), 0)
-      const lowVulns = scans.reduce((sum: number, s: BackendScan) => sum + (s.lowCount || 0), 0)
-      const scannedImages = scans.filter((s: BackendScan) => s.status === 'COMPLETED').length
-        ? [...new Set(scans.filter((s: BackendScan) => s.status === 'COMPLETED').map((s: BackendScan) => s.imageId))].length
-        : 0
-      const imagesAtRisk = scans.filter((s: BackendScan) => s.criticalCount > 0 || s.highCount > 0).length
-        ? [...new Set(scans.filter((s: BackendScan) => s.criticalCount > 0 || s.highCount > 0).map((s: BackendScan) => s.imageId))].length
-        : 0
-
-      return {
-        totalImages: images.length,
-        scannedImages,
-        totalVulnerabilities: totalVulns,
-        criticalVulnerabilities: criticalVulns,
-        highVulnerabilities: highVulns,
-        mediumVulnerabilities: mediumVulns,
-        lowVulnerabilities: lowVulns,
-        fixesAvailable: totalVulns,
-        imagesAtRisk,
-      }
-    }
+  async getScanVulnerabilities(scanId: string) {
+    const body = await apiRequest<{ success: boolean; data: { items: any[]; summary: any } }>(`/api/v1/vulnerabilities/scan/${scanId}`)
+    return { items: body.data.items.map(transformVulnerability), summary: body.data.summary }
   },
 
-  async getImages(page = 1, pageSize = 10, search = '') {
-    const params = new URLSearchParams({ page: String(page), limit: String(pageSize) })
-    if (search) params.set('search', search)
-
-    const [imgBody, scansBody] = await Promise.all([
-      apiRequest<{ success: boolean; items: BackendImage[]; total: number; page: number; limit: number; totalPages: number }>(`/api/v1/images?${params}`),
-      apiRequest<{ success: boolean; items: BackendScan[] }>(`/api/v1/scans?limit=10000`).catch(() => ({ success: false, items: [] })),
-    ])
-
-    scansCache = (scansBody as any)?.items || scansCache
-
-    const data = imgBody.items.map(img => transformImage(img, scansCache))
-
-    return {
-      data,
-      total: imgBody.total || 0,
-      page: imgBody.page || page,
-      pageSize: imgBody.limit || pageSize,
-      totalPages: imgBody.totalPages || Math.ceil((imgBody.total || 0) / pageSize),
-    }
+  async getScanSbom(scanId: string) {
+    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/scans/${scanId}/sbom`)
+    return body.data
   },
 
-  async getScans(page = 1, pageSize = 10) {
-    const params = new URLSearchParams({ page: String(page), limit: String(pageSize) })
-    const body = await apiRequest<{ success: boolean; items: BackendScan[]; total: number; page: number; limit: number; totalPages: number }>(`/api/v1/scans?${params}`)
-
-    scansCache = body.items
-
-    const data = body.items.map(transformScan)
-
-    return {
-      data,
-      total: body.total || 0,
-      page: body.page || page,
-      pageSize: body.limit || pageSize,
-      totalPages: body.totalPages || Math.ceil((body.total || 0) / pageSize),
-    }
+  async downloadScanSbom(scanId: string, format: string) {
+    const res = await fetch(`${API_BASE}/api/v1/scans/${scanId}/sbom/download?format=${format}`, {
+      headers: { Authorization: `Bearer ${getAccessToken()}` },
+    })
+    if (!res.ok) throw new Error('Download failed')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `sbom-${scanId}.${format.toLowerCase()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
   },
 
-  async getImageById(id: string) {
-    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/images/${id}`)
-    const scansBody = await apiRequest<{ success: boolean; items: BackendScan[] }>(`/api/v1/scans?limit=10000`).catch(() => ({ success: true, items: [] }))
-    return transformImage(body.data, scansBody.items || [])
+  async getScanPackages(scanId: string) {
+    const body = await apiRequest<{ success: boolean; data: any[] }>(`/api/v1/scans/${scanId}/packages`)
+    return body.data
   },
 
-  async getImageDetail(id: string) {
-    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/images/${id}`)
-    const d = body.data
-    return {
-      id: d.id,
-      name: d.name,
-      tag: d.tag,
-      digest: d.digest,
-      registry: d.registry,
-      repository: d.repository,
-      architecture: d.architecture,
-      os: d.os,
-      size: d.size,
-      mediaType: d.mediaType,
-      isSigned: d.isSigned,
-      labels: d.labels,
-      manifest: d.manifest,
-      config: d.config,
-      signatureInfo: d.signatureInfo,
-      userId: d.userId,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-    } as ImageDetail
+  async getSBOM(imageId?: string) {
+    const body = await apiRequest<{ success: boolean; items: any[] }>(`/api/v1/sboms${imageId ? `?imageId=${imageId}` : ''}`)
+    if (imageId) return body.items[0] as SBOMEntry
+    return body.items as SBOMEntry[]
   },
 
   async createSBOM(imageId: string, format = 'CYCLONEDX') {
-    const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/sboms', {
+    const body = await apiRequest<{ success: boolean; data: { id: string } }>('/api/v1/sboms', {
       method: 'POST',
       body: JSON.stringify({ imageId, format }),
     })
     return body.data
   },
 
-  async getScansByImageId(imageId: string) {
-    const body = await apiRequest<{ success: boolean; items: BackendScan[] }>(`/api/v1/scans?limit=100`)
-    const filtered = (body.items || []).filter(s => s.imageId === imageId)
-    return filtered.map(transformScan)
+  async deleteSBOM(id: string) {
+    await apiRequest(`/api/v1/sboms/${id}`, { method: 'DELETE' })
   },
 
-  async getScanById(id: string) {
-    const body = await apiRequest<{ success: boolean; data: BackendScan }>(`/api/v1/scans/${id}`)
-    return transformScan(body.data)
+  async getReports(page = 1, limit = 100) {
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number }>(`/api/v1/reports?page=${page}&limit=${limit}`)
+    return { items: body.items.map(transformReport), total: body.total }
   },
 
-  async getVulnerabilities(page = 1, pageSize = 10, severity?: string, search = '') {
-    const params = new URLSearchParams({ page: String(page), limit: String(pageSize) })
-    if (severity && severity !== 'all') params.set('severity', severity.toUpperCase())
-    if (search) params.set('search', search)
-
-    const body = await apiRequest<any>(`/api/v1/vulnerabilities?${params}`)
-
-    const items: any[] = body.items || []
-    const data = items.map(transformVulnerability)
-
-    return {
-      data,
-      total: body.total || 0,
-      page: body.page || page,
-      pageSize: body.limit || pageSize,
-      totalPages: body.totalPages || Math.ceil((body.total || 0) / pageSize),
-    }
-  },
-
-  async getVulnerabilityById(id: string) {
-    const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/vulnerabilities/${id}`)
-    return transformVulnerability(body.data)
-  },
-
-  async getSBOM(imageId: string) {
-    try {
-      const body = await apiRequest<{ success: boolean; items: any[] }>(`/api/v1/sboms?limit=1&imageId=${encodeURIComponent(imageId)}`)
-      const sbom = (body.items || [])[0]
-      if (!sbom) {
-        return {
-          id: '',
-          imageId,
-          bomFormat: 'CycloneDX',
-          specVersion: '1.5',
-          createdAt: new Date().toISOString(),
-          packages: [],
-          licenses: [],
-          dependencies: [],
-        } as SBOMEntry
-      }
-      return {
-        id: sbom.id,
-        imageId: sbom.imageId,
-        bomFormat: sbom.format || sbom.bomFormat || 'CycloneDX',
-        specVersion: sbom.specVersion || '1.5',
-        createdAt: sbom.createdAt,
-        packages: (sbom.content?.packages || sbom.packages || []).map((p: any) => ({
-          name: p.name || p.packageName || '',
-          version: p.version || '',
-          type: p.type || p.packageType || 'deb',
-          license: p.license || 'Unknown',
-          dependencies: p.dependencies?.length || 0,
-          vulnerabilities: (p.vulnerabilities || []).map(transformVulnerability),
-        })),
-        licenses: (sbom.content?.licenses || sbom.licenses || []).map((l: any) => ({
-          name: l.name || '',
-          spdxId: l.spdxId || 'Unknown',
-          packages: l.packages || l.packageCount || 0,
-          risk: l.risk || 'unknown',
-        })),
-        dependencies: (sbom.content?.dependencies || sbom.dependencies || []).map((d: any) => ({
-          packageName: d.packageName || d.name || '',
-          version: d.version || '',
-          dependencies: d.dependencies || [],
-        })),
-      } as SBOMEntry
-    } catch {
-      return {
-        id: '',
-        imageId,
-        bomFormat: 'CycloneDX',
-        specVersion: '1.5',
-        createdAt: new Date().toISOString(),
-        packages: [],
-        licenses: [],
-        dependencies: [],
-      } as SBOMEntry
-    }
-  },
-
-  async getReports() {
-    const body = await apiRequest<{ success: boolean; items: any[] }>('/api/v1/reports?limit=100')
-    return (body.items || []).map(transformReport)
+  async createReport(title: string, format: string, scanId?: string, imageId?: string) {
+    const body = await apiRequest<{ success: boolean; data: { id: string } }>('/api/v1/reports', {
+      method: 'POST',
+      body: JSON.stringify({ title, format, scanId, imageId }),
+    })
+    return body.data
   },
 
   async downloadReportFile(reportId: string, filename: string) {
-    const token = getToken()
-    const url = `${API_BASE}/api/v1/reports/${reportId}/download`
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/download`, {
+      headers: { Authorization: `Bearer ${getAccessToken()}` },
+    })
     if (!res.ok) throw new Error('Download failed')
     const blob = await res.blob()
-    const blobUrl = URL.createObjectURL(blob)
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = blobUrl
+    a.href = url
     a.download = filename
-    document.body.appendChild(a)
     a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(blobUrl)
-  },
-
-  async generateReport(type: string, format: string, scanId?: string) {
-    const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/reports', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: `Custom ${type} Report`,
-        format: format.toUpperCase(),
-        scanId,
-        parameters: { type },
-      }),
-    })
-    return transformReport(body.data)
+    URL.revokeObjectURL(url)
   },
 
   async getNotifications() {
-    const body = await apiRequest<{ success: boolean; items: any[] }>('/api/v1/notifications?limit=100')
-    return (body.items || []).map(transformNotification)
+    const body = await apiRequest<{ success: boolean; items: any[] }>('/api/v1/notifications')
+    return body.items.map(transformNotification)
   },
 
   async markNotificationRead(id: string) {
     await apiRequest(`/api/v1/notifications/${id}/read`, { method: 'PATCH' })
-    return true
   },
 
-  async createApiKey(name: string, permissions: string[] = []) {
-    const body = await apiRequest<{ success: boolean; data: { id: string; name: string; keyPrefix: string; key: string; permissions: string[]; createdAt: string } }>('/api/v1/api-keys', {
+  async getUsers() {
+    const body = await apiRequest<{ success: boolean; data: any[] }>('/api/v1/users')
+    return body.data.map(transformUser)
+  },
+
+  async getCurrentUser() {
+    const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/users/me')
+    return transformUser(body.data)
+  },
+
+  async updateUser(id: string, data: Partial<User>) {
+    await apiRequest(`/api/v1/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async deleteUser(id: string) {
+    await apiRequest(`/api/v1/users/${id}`, { method: 'DELETE' })
+  },
+
+  async getApiKeys() {
+    const body = await apiRequest<{ success: boolean; data: any[] }>('/api/v1/api-keys')
+    return body.data
+  },
+
+  async createApiKey(name: string, permissions?: string[]) {
+    const body = await apiRequest<{ success: boolean; data: { id: string; key: string } }>('/api/v1/api-keys', {
       method: 'POST',
       body: JSON.stringify({ name, permissions }),
     })
     return body.data
   },
 
-  async getApiKeys() {
-    const body = await apiRequest<{ success: boolean; items: Array<{ id: string; name: string; keyPrefix: string; permissions: string[]; lastUsedAt: string | null; createdAt: string }> }>('/api/v1/api-keys?limit=100')
-    return body.items || []
-  },
-
   async deleteApiKey(id: string) {
     await apiRequest(`/api/v1/api-keys/${id}`, { method: 'DELETE' })
-    return true
   },
 
   async updateProfile(name: string, email: string) {
-    const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/users/me', {
+    await apiRequest('/api/v1/users/me', {
       method: 'PATCH',
-      body: JSON.stringify({ username: name, email }),
+      body: JSON.stringify({ name, email }),
     })
-    return body.data
   },
 
   async changePassword(currentPassword: string, newPassword: string) {
-    const body = await apiRequest<{ success: boolean; message: string }>('/api/v1/auth/change-password', {
+    await apiRequest('/api/v1/auth/change-password', {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
     })
-    return body.message
   },
 
-  async getChartData(): Promise<{ vulnerabilitySeverity: Array<{ name: string; value: number; color: string }>; scanTrend: Array<{ date: string; scans: number; vulnerabilities: number }>; monthlySecurity: Array<{ month: string; critical: number; high: number; medium: number; low: number }> }> {
-    try {
-      const body = await apiRequest<{ success: boolean; data: { stats: any; chartData: { vulnerabilitySeverity: Array<{ name: string; value: number; color: string }>; scanTrend: Array<{ date: string; scans: number; vulnerabilities: number }>; monthlySecurity: Array<{ month: string; critical: number; high: number; medium: number; low: number }> } } }>('/api/v1/dashboard')
-      return body.data.chartData
-    } catch {
-      return {
-        vulnerabilitySeverity: [],
-        scanTrend: [],
-        monthlySecurity: [],
-      }
-    }
+  async getAuditLogs(page = 1, limit = 50) {
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number }>(`/api/v1/audit-logs?page=${page}&limit=${limit}`)
+    return body
+  },
+
+  // ========== BLAST RADIUS ==========
+  blastRadius: {
+    findByCve: async (cveId: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/blast-radius/cve/${cveId}`);
+      return body.data;
+    },
+    findByPackage: async (packageName: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/blast-radius/package/${encodeURIComponent(packageName)}`);
+      return body.data;
+    },
+    bulkRescan: async (cveId: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/blast-radius/cve/${cveId}/rescan`, { method: 'POST' });
+      return body.data;
+    },
+  },
+
+  // ========== SCAN DIFF ==========
+  scanDiff: {
+    getDiff: async (scanId: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/scans/${scanId}/diff`);
+      return body.data;
+    },
+    compareScans: async (scanA: string, scanB: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/scans/diff?scanA=${scanA}&scanB=${scanB}`);
+      return body.data;
+    },
+  },
+
+  // ========== ASSIGNMENTS ==========
+  assignments: {
+    create: async (data: { vulnerabilityId: string; assignedToId: string; notes?: string }) => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/assignments', { method: 'POST', body: JSON.stringify(data) });
+      return body.data;
+    },
+    list: async (params?: { status?: string; assigneeId?: string; breached?: boolean; page?: number; limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set('status', params.status);
+      if (params?.assigneeId) searchParams.set('assigneeId', params.assigneeId);
+      if (params?.breached) searchParams.set('breached', 'true');
+      if (params?.page) searchParams.set('page', String(params.page));
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      const body = await apiRequest<{ success: boolean; data: any[]; total: number }>(`/api/v1/assignments${qs ? `?${qs}` : ''}`);
+      return { items: body.data || [], total: body.total || 0 };
+    },
+    getById: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/assignments/${id}`);
+      return body.data;
+    },
+    updateStatus: async (id: string, status: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/assignments/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      return body.data;
+    },
+    complianceReport: async (dateFrom?: string, dateTo?: string) => {
+      const searchParams = new URLSearchParams();
+      if (dateFrom) searchParams.set('dateFrom', dateFrom);
+      if (dateTo) searchParams.set('dateTo', dateTo);
+      const qs = searchParams.toString();
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/assignments/compliance-report${qs ? `?${qs}` : ''}`);
+      return body.data;
+    },
+  },
+
+  // ========== EXCEPTIONS ==========
+  exceptions: {
+    create: async (data: { cveId: string; reason: string; expiresAt: string; imageId?: string; approvedById?: string }) => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/exceptions', { method: 'POST', body: JSON.stringify(data) });
+      return body.data;
+    },
+    list: async (params?: { isActive?: boolean; cveId?: string; page?: number; limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.isActive !== undefined) searchParams.set('isActive', String(params.isActive));
+      if (params?.cveId) searchParams.set('cveId', params.cveId);
+      if (params?.page) searchParams.set('page', String(params.page));
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      const body = await apiRequest<{ success: boolean; data: any[]; total: number }>(`/api/v1/exceptions${qs ? `?${qs}` : ''}`);
+      return { items: body.data || [], total: body.total || 0 };
+    },
+    getById: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/exceptions/${id}`);
+      return body.data;
+    },
+    approve: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/exceptions/${id}/approve`, { method: 'POST' });
+      return body.data;
+    },
+    revoke: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/exceptions/${id}/revoke`, { method: 'POST' });
+      return body.data;
+    },
+  },
+
+  // ========== POSTURE ==========
+  posture: {
+    orgTrend: async (dateFrom?: string, dateTo?: string) => {
+      const searchParams = new URLSearchParams();
+      if (dateFrom) searchParams.set('dateFrom', dateFrom);
+      if (dateTo) searchParams.set('dateTo', dateTo);
+      const qs = searchParams.toString();
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/posture/org${qs ? `?${qs}` : ''}`);
+      return body.data;
+    },
+    imageHistory: async (imageId: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/posture/image/${imageId}`);
+      return body.data;
+    },
+    leaderboard: async () => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/posture/leaderboard');
+      return body.data;
+    },
+    weeklyDigest: async () => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/posture/weekly-digest');
+      return body.data;
+    },
+  },
+
+  // ========== POLICIES ==========
+  policies: {
+    create: async (data: any) => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/policies', { method: 'POST', body: JSON.stringify(data) });
+      return body.data;
+    },
+    list: async () => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/policies');
+      return body.data;
+    },
+    getById: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/policies/${id}`);
+      return body.data;
+    },
+    update: async (id: string, data: any) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+      return body.data;
+    },
+    delete: async (id: string) => {
+      await apiRequest(`/api/v1/policies/${id}`, { method: 'DELETE' });
+    },
+    setDefault: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/policies/${id}/set-default`, { method: 'POST' });
+      return body.data;
+    },
+    evaluate: async (imageId: string, policyId?: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(policyId ? `/api/v1/policies/${policyId}/evaluate/${imageId}` : `/api/v1/policies/evaluate/${imageId}`);
+      return body.data;
+    },
+  },
+
+  // ========== WEBHOOKS ==========
+  webhooks: {
+    create: async (data: { name: string; url: string; secret: string; events: string[] }) => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/webhooks', { method: 'POST', body: JSON.stringify(data) });
+      return body.data;
+    },
+    list: async () => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/webhooks');
+      return body.data;
+    },
+    getById: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/webhooks/${id}`);
+      return body.data;
+    },
+    update: async (id: string, data: any) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+      return body.data;
+    },
+    delete: async (id: string) => {
+      await apiRequest(`/api/v1/webhooks/${id}`, { method: 'DELETE' });
+    },
+    test: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/webhooks/${id}/test`, { method: 'POST' });
+      return body.data;
+    },
+  },
+
+  // ========== LIVE SCANS ==========
+  liveScans: {
+    create: async (data: { imageRef: string; policyId?: string }) => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/live-scan', { method: 'POST', body: JSON.stringify(data) });
+      return body.data;
+    },
+    getById: async (id: string) => {
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/live-scan/${id}`);
+      return body.data;
+    },
+  },
+
+  // ========== NVD WATCH ==========
+  nvdWatch: {
+    status: async () => {
+      const body = await apiRequest<{ success: boolean; data: any }>('/api/v1/nvd-watch/status');
+      return body.data;
+    },
+    recent: async (params?: { processed?: boolean; page?: number; limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.processed !== undefined) searchParams.set('processed', String(params.processed));
+      if (params?.page) searchParams.set('page', String(params.page));
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      const body = await apiRequest<{ success: boolean; data: any }>(`/api/v1/nvd-watch/recent${qs ? `?${qs}` : ''}`);
+      return body.data;
+    },
   },
 }

@@ -5,13 +5,16 @@ export interface Vulnerability {
   cveId: string
   package: string
   version: string
-  severity: Severity
+  severity: string
   cvss: number
-  description: string
-  fixVersion: string | null
-  publishedAt: string
+  title?: string
+  description?: string
+  fixVersion?: string
+  publishedAt?: string
+  source: string
+  exploitAvailable?: boolean
   isFixed: boolean
-  exploitAvailable: boolean
+  scanId: string
 }
 
 export interface ContainerImage {
@@ -51,11 +54,9 @@ export interface ImageDetail {
   size: string | null
   mediaType: string | null
   isSigned: boolean
-  labels: Record<string, unknown> | null
-  manifest: Record<string, unknown> | null
-  config: Record<string, unknown> | null
-  signatureInfo: Record<string, unknown> | null
-  userId: string
+  lastScanStatus: string
+  lastScanId?: string
+  vulnerabilitySummary: { critical: number; high: number; medium: number; low: number; unknown: number }
   createdAt: string
   updatedAt: string
 }
@@ -64,73 +65,58 @@ export interface Scan {
   id: string
   imageId: string
   imageName: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  scanType: string
+  status: string
   progress: number
-  totalVulnerabilities: number
+  errorMessage?: string
+  startedAt?: string
+  completedAt?: string
+  retryCount: number
+  maxRetries: number
+  vulnerabilitiesCount: number
   criticalCount: number
   highCount: number
   mediumCount: number
   lowCount: number
-  startedAt: string
-  completedAt: string | null
-  duration: string | null
-  scanner: string
-}
-
-export interface Package {
-  name: string
-  version: string
-  type: 'npm' | 'pip' | 'maven' | 'go' | 'deb' | 'apk' | 'rpm'
-  license: string
-  dependencies: number
-  vulnerabilities: Vulnerability[]
-}
-
-export interface License {
-  name: string
-  spdxId: string
-  packages: number
-  risk: 'high' | 'medium' | 'low' | 'unknown'
-}
-
-export interface SBOMEntry {
-  id: string
-  imageId: string
-  bomFormat: string
-  specVersion: string
   createdAt: string
-  packages: Package[]
-  licenses: License[]
-  dependencies: Dependency[]
+  updatedAt: string
 }
 
-export interface Dependency {
-  packageName: string
+export interface SbomPackage {
+  id: string
+  name: string
   version: string
-  dependencies: string[]
+  ecosystem: string
+  purl?: string
+  scanId: string
+  createdAt: string
 }
 
 export interface Report {
   id: string
   title: string
-  type: 'vulnerability' | 'compliance' | 'audit' | 'custom'
-  format: 'pdf' | 'csv' | 'json'
-  status: 'generating' | 'ready' | 'failed'
+  type?: string
+  format: string
+  status: string
+  filePath?: string
+  fileSize?: number
+  size?: string
+  generatedAt?: string
   createdAt: string
-  generatedAt: string | null
-  size: string | null
-  downloadUrl: string | null
 }
 
 export interface Notification {
   id: string
-  type: 'scan_complete' | 'critical_cve' | 'policy_breach' | 'system'
-  title: string
-  message: string
-  severity: Severity
-  read: boolean
+  type: string
+  channel: string
+  subject: string
+  body: string
+  title?: string
+  message?: string
+  severity?: string
+  isRead: boolean
+  sentAt?: string
   createdAt: string
-  link: string | null
 }
 
 export interface ScanStatistics {
@@ -149,9 +135,63 @@ export interface User {
   id: string
   email: string
   name: string
-  role: 'admin' | 'viewer' | 'developer'
+  role: string
   permissions: string[]
   avatar: string | null
+}
+
+export interface VulnerabilitySeverity {
+  name: string
+  value: number
+  color: string
+}
+
+export interface ScanTrend {
+  date: string
+  scans: number
+  vulnerabilities: number
+}
+
+export interface MonthlySecurity {
+  month: string
+  critical: number
+  high: number
+  medium: number
+  low: number
+}
+
+export interface SbomPackageItem {
+  name: string
+  version: string
+  type: string
+  license?: string
+  purl?: string
+  dependencies: string[]
+  vulnerabilities?: { id?: string; cveId: string; severity: string }[]
+}
+
+export interface SbomLicense {
+  spdxId: string
+  name: string
+  packages: number
+  risk: string
+}
+
+export interface SbomDependency {
+  packageName: string
+  version: string
+  dependencies: string[]
+}
+
+export interface SBOMEntry {
+  id: string
+  imageId: string
+  bomFormat: string
+  specVersion: string
+  packages: SbomPackageItem[]
+  licenses: SbomLicense[]
+  dependencies: SbomDependency[]
+  createdAt: string
 }
 
 export interface ApiKey {
@@ -174,4 +214,152 @@ export interface PaginatedResponse<T> {
 export interface Breadcrumb {
   label: string
   href?: string
+}
+
+// ========== V2.0 TYPES ==========
+
+export interface VulnerabilityAssignment {
+  id: string
+  vulnerabilityId: string
+  vulnerability?: Vulnerability
+  assignedTo: { id: string; name: string; email: string }
+  assignedBy: { id: string; name: string }
+  notes?: string
+  status: string
+  slaBreachedAt?: string
+  slaDeadline?: string
+  resolvedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VulnerabilityException {
+  id: string
+  cveId: string
+  vulnerability?: Vulnerability
+  reason: string
+  status: string
+  createdBy: { id: string; name: string }
+  approvedBy?: { id: string; name: string }
+  expiresAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ScanPolicy {
+  id: string
+  name: string
+  description?: string
+  rules: {
+    severityThreshold: 'critical' | 'high' | 'medium' | 'low'
+    maxCount: number
+    action: 'block' | 'warn'
+  }[]
+  isDefault: boolean
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Webhook {
+  id: string
+  name: string
+  url: string
+  events: string[]
+  isActive: boolean
+  lastTriggeredAt?: string
+  lastSuccessAt?: string
+  lastFailureAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WebhookDelivery {
+  id: string
+  webhookId: string
+  event: string
+  status: string
+  statusCode?: number
+  responseBody?: string
+  duration?: number
+  attempt: number
+  createdAt: string
+}
+
+export interface CveWatchEntry {
+  id: string
+  cveId: string
+  cvssScore?: number
+  severity?: string
+  description?: string
+  affectedPackages?: string[]
+  isProcessed: boolean
+  relatedScans?: string[]
+  createdAt: string
+  processedAt?: string
+}
+
+export interface PostureSnapshot {
+  id: string
+  imageId: string
+  imageName: string
+  score: number
+  vulnerabilitiesCount: number
+  criticalCount: number
+  highCount: number
+  mediumCount: number
+  lowCount: number
+  fixesAvailable: number
+  scannedAt: string
+}
+
+export interface ScanDiff {
+  id: string
+  scanId: string
+  baselineScanId?: string
+  vulnerabilitiesAdded: number
+  vulnerabilitiesRemoved: number
+  severityShift: { critical: number; high: number; medium: number; low: number }
+  newCves: { cveId: string; severity: string; package: string }[]
+  fixedCves: { cveId: string; severity: string; package: string }[]
+  regressionDetected: boolean
+  createdAt: string
+}
+
+export interface LiveScan {
+  id: string
+  imageRef: string
+  status: string
+  policyId?: string
+  policyResult?: { action: 'pass' | 'block' | 'warn'; blockingCves: string[] }
+  downloadUrl?: string
+  errorMessage?: string
+  progress: number
+  createdAt: string
+  completedAt?: string
+}
+
+export interface PostureTrend {
+  date: string
+  score: number
+  critical: number
+  high: number
+  medium: number
+  low: number
+}
+
+export interface LeaderboardEntry {
+  imageId: string
+  imageName: string
+  score: number
+  trend: 'up' | 'down' | 'stable'
+}
+
+export interface ComplianceReport {
+  totalAssignments: number
+  resolvedAssignments: number
+  overdueAssignments: number
+  slaComplianceRate: number
+  averageResolutionTime: number
+  assigneeBreakdown: { name: string; assigned: number; resolved: number; overdue: number }[]
 }

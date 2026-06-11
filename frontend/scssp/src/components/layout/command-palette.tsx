@@ -15,6 +15,13 @@ const commands = [
   { id: 'go-reports', label: 'Go to Reports', description: 'Generate and download reports', icon: 'R', path: '/reports' },
   { id: 'go-notifications', label: 'Go to Notifications', description: 'View alerts', icon: 'N', path: '/notifications' },
   { id: 'go-settings', label: 'Go to Settings', description: 'Manage preferences', icon: 'E', path: '/settings' },
+  { id: 'go-blast-radius', label: 'Go to Blast Radius', description: 'CVE impact analysis', icon: 'B', path: '/blast-radius' },
+  { id: 'go-posture', label: 'Go to Posture', description: 'Security posture dashboard', icon: 'P', path: '/posture' },
+  { id: 'go-assignments', label: 'Go to Assignments', description: 'Vulnerability assignments', icon: 'A', path: '/assignments' },
+  { id: 'go-exceptions', label: 'Go to Exceptions', description: 'CVE exception requests', icon: 'X', path: '/exceptions' },
+  { id: 'go-policies', label: 'Go to Policies', description: 'Scan policies', icon: 'L', path: '/policies' },
+  { id: 'go-webhooks', label: 'Go to Webhooks', description: 'Webhook integrations', icon: 'W', path: '/webhooks' },
+  { id: 'go-live-scan', label: 'Go to Live Scan', description: 'On-demand image scanning', icon: 'L', path: '/live-scan' },
 ]
 
 export function CommandPalette() {

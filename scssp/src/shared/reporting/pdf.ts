@@ -3,7 +3,9 @@ import PDFDocument from 'pdfkit';
 import { getEnv } from '@shared/config/env';
 import { getPrisma } from '@shared/database/prisma';
 import { getLogger } from '@shared/utils/logger';
+import { ensureBucket, uploadFile } from '@shared/storage/minio';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 const logger = getLogger();
@@ -16,11 +18,9 @@ export async function generatePdfReport(
 ): Promise<{ filePath: string; fileSize: number }> {
   const prisma = getPrisma();
   const env = getEnv();
-  const outputDir = path.resolve(env.REPORT_OUTPUT_DIR);
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fortifyci-'));
   const reportId = crypto.randomUUID();
-  const filePath = path.join(outputDir, `${reportId}.pdf`);
+  const tmpPath = path.join(tmpDir, `${reportId}.pdf`);
 
   const doc = new PDFDocument({
     size: 'A4',
@@ -32,7 +32,7 @@ export async function generatePdfReport(
     },
   });
 
-  const stream = fs.createWriteStream(filePath);
+  const stream = fs.createWriteStream(tmpPath);
   doc.pipe(stream);
 
   doc.fontSize(24).font('Helvetica-Bold').text('FortifyCI', { align: 'center' });
@@ -128,11 +128,23 @@ export async function generatePdfReport(
   doc.end();
 
   return new Promise((resolve, reject) => {
-    stream.on('finish', () => {
-      const stats = fs.statSync(filePath);
-      logger.info({ filePath, fileSize: stats.size }, 'PDF report generated');
-      resolve({ filePath, fileSize: stats.size });
+    stream.on('finish', async () => {
+      try {
+        await ensureBucket();
+        const objectName = `reports/${reportId}.pdf`;
+        const buffer = fs.readFileSync(tmpPath);
+        await uploadFile(objectName, buffer, buffer.length, 'application/pdf');
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        logger.info({ objectName, fileSize: buffer.length }, 'PDF report uploaded to MinIO');
+        resolve({ filePath: objectName, fileSize: buffer.length });
+      } catch (err) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        reject(err);
+      }
     });
-    stream.on('error', reject);
+    stream.on('error', (err) => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      reject(err);
+    });
   });
 }

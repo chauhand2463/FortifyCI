@@ -12,14 +12,14 @@ import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/utils'
 import { Container, ScanSearch, ArrowLeft, Loader2, Tag, Cpu, Monitor, FileJson, BookmarkCheck, BookmarkX } from 'lucide-react'
 import { toast } from 'sonner'
-import type { ContainerImage, Scan, ImageDetail } from '@/types'
+import type { Scan, ImageDetail } from '@/types'
 
 function useImageDetail(id: string) {
   return useQuery({
     queryKey: ['image', id],
     queryFn: async () => {
-      const body = await services.getImageById(id)
-      return body as ContainerImage
+      const body = await services.getImage(id)
+      return body as ImageDetail
     },
     enabled: !!id,
   })
@@ -30,7 +30,7 @@ function useRawImageDetail(id: string) {
     queryKey: ['imageDetail', id],
     queryFn: async () => {
       const body = await services.getImageDetail(id)
-      return body as ImageDetail
+      return body as Record<string, any>
     },
     enabled: !!id,
   })
@@ -137,8 +137,8 @@ export default function ImageDetailPage() {
           <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Status</CardTitle></CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <StatusDot status={image.status} />
-              <span className="text-white font-medium capitalize">{image.status}</span>
+              <StatusDot status={image.lastScanStatus || 'unknown'} />
+              <span className="text-white font-medium capitalize">{image.lastScanStatus || 'unknown'}</span>
             </div>
           </CardContent>
         </Card>
@@ -146,11 +146,11 @@ export default function ImageDetailPage() {
           <CardHeader className="pb-2"><CardTitle className="text-sm text-[#5A6380]">Vulnerabilities</CardTitle></CardHeader>
           <CardContent>
             <div className="flex items-center gap-3 text-xs">
-              {image.vulnerabilities.critical > 0 && <span className="text-[#FF4757] font-medium">{image.vulnerabilities.critical} Critical</span>}
-              {image.vulnerabilities.high > 0 && <span className="text-[#FFA502] font-medium">{image.vulnerabilities.high} High</span>}
-              {image.vulnerabilities.medium > 0 && <span className="text-[#4DA6FF]">{image.vulnerabilities.medium} Medium</span>}
-              {image.vulnerabilities.low > 0 && <span className="text-[#5A6380]">{image.vulnerabilities.low} Low</span>}
-              {image.vulnerabilities.critical + image.vulnerabilities.high + image.vulnerabilities.medium + image.vulnerabilities.low === 0 && (
+              {image.vulnerabilitySummary.critical > 0 && <span className="text-[#FF4757] font-medium">{image.vulnerabilitySummary.critical} Critical</span>}
+              {image.vulnerabilitySummary.high > 0 && <span className="text-[#FFA502] font-medium">{image.vulnerabilitySummary.high} High</span>}
+              {image.vulnerabilitySummary.medium > 0 && <span className="text-[#4DA6FF]">{image.vulnerabilitySummary.medium} Medium</span>}
+              {image.vulnerabilitySummary.low > 0 && <span className="text-[#5A6380]">{image.vulnerabilitySummary.low} Low</span>}
+              {image.vulnerabilitySummary.critical + image.vulnerabilitySummary.high + image.vulnerabilitySummary.medium + image.vulnerabilitySummary.low === 0 && (
                 <span className="text-[#00D4AA]">Clean - No vulnerabilities</span>
               )}
             </div>
@@ -203,7 +203,7 @@ export default function ImageDetailPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-[#00D4AA]">
               <span className="h-2.5 w-2.5 rounded-full bg-[#00D4AA] animate-pulse" />
-              Live Scan: {activeScan.scanner}
+              Live Scan: {activeScan.scanType}
             </CardTitle>
             <CardDescription>Started {formatDate(activeScan.startedAt)}</CardDescription>
           </CardHeader>
@@ -293,7 +293,7 @@ export default function ImageDetailPage() {
                     <div>
                       <p className="text-sm text-white font-medium capitalize">{scan.status}</p>
                       <p className="text-xs text-[#5A6380]">
-                        {scan.duration || 'In progress'} &middot; {formatDate(scan.startedAt)}
+                        {formatDate(scan.startedAt)}
                       </p>
                     </div>
                   </div>
@@ -304,9 +304,9 @@ export default function ImageDetailPage() {
                         {scan.progress}%
                       </div>
                     )}
-                    <span className="text-xs text-[#5A6380]">{scan.scanner}</span>
-                    <Badge variant={scan.totalVulnerabilities > 0 ? 'danger' : 'success'} className="text-[10px]">
-                      {scan.totalVulnerabilities} vulns
+                    <span className="text-xs text-[#5A6380]">{scan.scanType}</span>
+                    <Badge variant={scan.vulnerabilitiesCount > 0 ? 'danger' : 'success'} className="text-[10px]">
+                      {scan.vulnerabilitiesCount} vulns
                     </Badge>
                   </div>
                 </div>

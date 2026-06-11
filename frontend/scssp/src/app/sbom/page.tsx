@@ -20,7 +20,7 @@ const sbomTabs = [
 
 export default function SBOMPage() {
   const { data: imagesData } = useImages(1, 100)
-  const images = imagesData?.data || []
+  const images = imagesData?.items || []
   const imageOptions = images.map(img => ({ value: img.id, label: `${img.name}:${img.tag}` }))
 
   const [imageId, setImageId] = useState('')
@@ -119,12 +119,12 @@ export default function SBOMPage() {
                         <Badge variant="outline">{pkg.type}</Badge>
                       </TableCell>
                       <TableCell className="text-[#5A6380]">{pkg.license}</TableCell>
-                      <TableCell className="text-[#5A6380] tabular-nums">{pkg.dependencies}</TableCell>
+                      <TableCell className="text-[#5A6380] tabular-nums">{pkg.dependencies.length}</TableCell>
                       <TableCell>
-                        {pkg.vulnerabilities.length > 0 ? (
+                        {pkg.vulnerabilities && pkg.vulnerabilities.length > 0 ? (
                           <div className="flex gap-1 flex-wrap">
                             {pkg.vulnerabilities.map(v => (
-                              <span key={v.id} className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', severityBgClass(v.severity))}>
+                              <span key={v.cveId} className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', severityBgClass(v.severity))}>
                                 {v.cveId}
                               </span>
                             ))}

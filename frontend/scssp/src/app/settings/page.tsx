@@ -8,16 +8,18 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, Spinner } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuthStore } from '@/store'
-import { useApiKeys, useCreateApiKey, useDeleteApiKey } from '@/hooks/use-queries'
+import { useApiKeys, useCreateApiKey, useDeleteApiKey, useNvdStatus } from '@/hooks/use-queries'
 import { services } from '@/services/api'
-import { formatDate } from '@/lib/utils'
-import { User, Copy, Plus, Key, Bell, Shield, Trash2 } from 'lucide-react'
+import { getAccessToken } from '@/store'
+import { formatDate, cn } from '@/lib/utils'
+import { User, Copy, Plus, Key, Bell, Shield, Trash2, Database, ExternalLink, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 
 const settingsTabs = [
   { id: 'profile', label: 'Profile' },
   { id: 'security', label: 'Security' },
   { id: 'keys', label: 'API Keys', adminOnly: true },
+  { id: 'nvd', label: 'NVD Watch', adminOnly: true },
   { id: 'preferences', label: 'Preferences' },
 ]
 
@@ -34,7 +36,7 @@ export default function SettingsPage() {
     setSaving(true)
     try {
       await services.updateProfile(name, email)
-      if (user) login({ ...user, name, email }, useAuthStore.getState().token || '')
+      if (user) login({ ...user, name, email }, getAccessToken() || '')
       toast.success('Profile updated')
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update profile')
@@ -233,7 +235,7 @@ export default function SettingsPage() {
                           {(ak.permissions || []).length === 0 ? (
                             <span className="text-xs text-[#5A6380]">All permissions</span>
                           ) : (
-                            (ak.permissions || []).map(p => (
+                            (ak.permissions || []).map((p: string) => (
                               <Badge key={p} variant="outline" className="text-[10px]">{p}</Badge>
                             ))
                           )}
@@ -254,6 +256,10 @@ export default function SettingsPage() {
             </Table>
           )}
         </Card>
+      )}
+
+      {tab === 'nvd' && user?.role === 'admin' && (
+        <NvdWatchSection />
       )}
 
       {tab === 'preferences' && (
@@ -312,6 +318,93 @@ export default function SettingsPage() {
           </Card>
         </div>
       )}
+    </div>
+  )
+}
+
+function NvdWatchSection() {
+  const { data: status, isLoading, error, refetch } = useNvdStatus()
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between w-full">
+            <div>
+              <CardTitle>NVD Watch</CardTitle>
+              <CardDescription>National Vulnerability Database auto-sync and monitoring</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8"><Spinner size="lg" /></div>
+          ) : error ? (
+            <div className="text-center py-8 text-[#FF4757]">Failed to load NVD status</div>
+          ) : status ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="rounded-lg bg-[#0D1022]/60 border border-[#1C2150] p-4">
+                  <p className="text-xs text-[#5A6380] mb-1">Last Sync</p>
+                  <p className="text-sm font-medium text-white">{status.lastSyncAt ? formatDate(status.lastSyncAt) : 'Never'}</p>
+                </div>
+                <div className="rounded-lg bg-[#0D1022]/60 border border-[#1C2150] p-4">
+                  <p className="text-xs text-[#5A6380] mb-1">CVEs Tracked</p>
+                  <p className="text-sm font-medium text-white">{status.totalTracked ?? 0}</p>
+                </div>
+                <div className="rounded-lg bg-[#0D1022]/60 border border-[#1C2150] p-4">
+                  <p className="text-xs text-[#5A6380] mb-1">Auto-Triggered Rescans</p>
+                  <p className="text-sm font-medium text-white">{status.totalRescans ?? 0}</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-[#0D1022]/60 border border-[#1C2150] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Database className="h-4 w-4 text-[#4DA6FF]" />
+                  <span className="text-sm font-medium text-white">Recent CVEs</span>
+                </div>
+                {(status.recentCves ?? []).length === 0 ? (
+                  <p className="text-sm text-[#5A6380]">No recent CVEs tracked</p>
+                ) : (
+                  <div className="space-y-2">
+                    {status.recentCves.map((cve: any) => (
+                      <div key={cve.id} className="flex items-center justify-between py-1.5 border-b border-[#1C2150] last:border-0">
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs font-mono text-white">{cve.cveId}</code>
+                          {cve.severity && (
+                            <Badge variant={cve.severity === 'CRITICAL' ? 'danger' : cve.severity === 'HIGH' ? 'warning' : 'info'}>
+                              {cve.severity}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {cve.cvssScore && <span className="text-xs text-[#5A6380]">CVSS {cve.cvssScore}</span>}
+                          {cve.isProcessed ? (
+                            <Badge variant="success">Processed</Badge>
+                          ) : (
+                            <Badge variant="warning">Pending</Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="text-xs text-[#5A6380] flex items-center gap-2">
+                <ExternalLink className="h-3 w-3" />
+                Data sourced from NVD API v2.0
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[#3A4058]">No NVD status available</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

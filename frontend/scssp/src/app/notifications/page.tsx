@@ -44,7 +44,7 @@ export default function NotificationsPage() {
   }
 
   const filtered = tab === 'unread'
-    ? (notifications ?? []).filter(n => !n.read)
+    ? (notifications ?? []).filter(n => !n.isRead)
     : (notifications ?? [])
 
   return (
@@ -78,25 +78,25 @@ export default function NotificationsPage() {
                   key={n.id}
                   className={cn(
                     'flex items-start gap-4 px-6 py-4 transition-colors hover:bg-[#131736]/50',
-                    !n.read && 'bg-[#00D4AA]/[0.02]'
+                    !n.isRead && 'bg-[#00D4AA]/[0.02]'
                   )}
                 >
-                  <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg bg-[#131736]/50 shrink-0', !n.read && 'bg-[#131736]')}>
+                  <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg bg-[#131736]/50 shrink-0', !n.isRead && 'bg-[#131736]')}>
                     <Icon className={cn('h-4 w-4', config.color)} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className={cn('text-sm', n.read ? 'text-[#9098B8]' : 'text-white font-semibold')}>
-                        {n.title}
+                      <h4 className={cn('text-sm', n.isRead ? 'text-[#9098B8]' : 'text-white font-semibold')}>
+                        {n.title || n.subject}
                       </h4>
-                      <Badge variant={severityVariant(n.severity)} className="text-[10px] px-1.5 py-0">
-                        {n.severity}
+                        <Badge variant={severityVariant(n.severity || 'low')} className="text-[10px] px-1.5 py-0">
+                          {n.severity}
                       </Badge>
                     </div>
-                    <p className="text-sm text-[#5A6380] mt-0.5">{n.message}</p>
+                    <p className="text-sm text-[#5A6380] mt-0.5">{n.message || n.body}</p>
                     <span className="text-xs text-[#3A4058] mt-1 block">{formatRelativeTime(n.createdAt)}</span>
                   </div>
-                  {!n.read && (
+                  {!n.isRead && (
                     <Button
                       variant="ghost"
                       size="sm"

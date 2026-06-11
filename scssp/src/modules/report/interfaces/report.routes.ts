@@ -2,6 +2,8 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { reportService } from '../application/report.service';
 import { createReportSchema, reportQuerySchema } from '../domain/report.types';
 import { authenticate, authorize } from '@shared/middleware/auth';
+import { getMinioClient, ensureBucket } from '@shared/storage/minio';
+import { getEnv } from '@shared/config/env';
 import { ValidationError } from '@shared/errors';
 
 export async function reportRoutes(app: FastifyInstance): Promise<void> {
@@ -45,18 +47,21 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ success: false, message: 'Report file not yet generated' });
     }
 
-    const fs = await import('fs');
-    if (!fs.existsSync(report.filePath)) {
-      return reply.code(404).send({ success: false, message: 'Report file not found on disk' });
-    }
+    const env = getEnv();
+    const client = getMinioClient();
+    await ensureBucket();
 
-    const stream = fs.createReadStream(report.filePath);
-    const extMap: Record<string, string> = { PDF: 'pdf', CSV: 'csv', JSON: 'json' };
-    const mimeMap: Record<string, string> = { PDF: 'application/pdf', CSV: 'text/csv', JSON: 'application/json' };
-    const ext = extMap[report.format] || 'bin';
-    reply.header('Content-Type', mimeMap[report.format] || 'application/octet-stream');
-    reply.header('Content-Disposition', `attachment; filename="${report.title}.${ext}"`);
-    return reply.send(stream);
+    try {
+      const stream = await client.getObject(env.MINIO_BUCKET, report.filePath);
+      const extMap: Record<string, string> = { PDF: 'pdf', CSV: 'csv', JSON: 'json' };
+      const mimeMap: Record<string, string> = { PDF: 'application/pdf', CSV: 'text/csv', JSON: 'application/json' };
+      const ext = extMap[report.format] || 'bin';
+      reply.header('Content-Type', mimeMap[report.format] || 'application/octet-stream');
+      reply.header('Content-Disposition', `attachment; filename="${report.title}.${ext}"`);
+      return reply.send(stream);
+    } catch {
+      return reply.code(404).send({ success: false, message: 'Report file not found in storage' });
+    }
   });
 
   app.delete('/:id', {
