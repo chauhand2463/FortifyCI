@@ -77,8 +77,8 @@ services:
       JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
       JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
       TRIVY_CACHE_DIR: /app/.trivy-cache
-      ENCRYPTION_KEY: 442eeca5c0d776e235aada75328678a1452b01466012315c49c59a95ad860949
-      CORS_ORIGIN: "*"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4000}
       FORGOT_PASSWORD_URL: http://localhost:4000/forgot-password
     ports:
       - "3000:3000"

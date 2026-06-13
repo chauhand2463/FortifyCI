@@ -8,6 +8,10 @@ out/
 Thumbs.db
 *.tsbuildinfo
 
+# Tool / agent scaffolding artifacts
+cookies.txt
+skills-lock.json
+
 # InsForge & AI agent skills
 .insforge
 .agent
