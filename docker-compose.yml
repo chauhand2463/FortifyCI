@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-11-17T22-21-33Z
     container_name: fortifyci-minio
     command: server /data --console-address ":9001"
     environment:
@@ -84,7 +84,6 @@ services:
       - "3000:3000"
     volumes:
       - trivy_cache:/app/.trivy-cache
-      - report_output:/app/reports
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
       interval: 10s
@@ -122,7 +121,6 @@ volumes:
   redis_data:
   minio_data:
   trivy_cache:
-  report_output:
 
 networks:
   fortifyci-network:

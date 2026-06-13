@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-11-17T22-21-33Z
     container_name: fortifyci-minio
     command: server /data --console-address ":9001"
     environment:
@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     container_name: fortifyci-prometheus
     ports:
       - "9090:9090"
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.3.0
     container_name: fortifyci-grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin
@@ -93,7 +93,7 @@ services:
     restart: unless-stopped
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.8.2
     container_name: fortifyci-node-exporter
     ports:
       - "9100:9100"

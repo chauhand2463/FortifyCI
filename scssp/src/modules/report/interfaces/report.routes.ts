@@ -52,13 +52,35 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
     await ensureBucket();
 
     try {
-      const stream = await client.getObject(env.MINIO_BUCKET, report.filePath);
       const extMap: Record<string, string> = { PDF: 'pdf', CSV: 'csv', JSON: 'json' };
       const mimeMap: Record<string, string> = { PDF: 'application/pdf', CSV: 'text/csv', JSON: 'application/json' };
       const ext = extMap[report.format] || 'bin';
-      reply.header('Content-Type', mimeMap[report.format] || 'application/octet-stream');
-      reply.header('Content-Disposition', `attachment; filename="${report.title}.${ext}"`);
-      return reply.send(stream);
+      const filename = `${report.title}.${ext}`;
+
+      const presignedUrl = await client.presignedGetObject(env.MINIO_BUCKET, report.filePath, 60 * 60);
+      return reply.redirect(302, presignedUrl);
+    } catch {
+      return reply.code(404).send({ success: false, message: 'Report file not found in storage' });
+    }
+  });
+
+  app.get('/:id/presigned-url', {
+    preHandler: [authorize('REPORT_DOWNLOAD')],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const report = await reportService.findById(id);
+
+    if (!report.filePath) {
+      return reply.code(404).send({ success: false, message: 'Report file not yet generated' });
+    }
+
+    const env = getEnv();
+    const client = getMinioClient();
+    await ensureBucket();
+
+    try {
+      const presignedUrl = await client.presignedGetObject(env.MINIO_BUCKET, report.filePath, 24 * 60 * 60);
+      return { success: true, data: { url: presignedUrl, expiresIn: 86400 } };
     } catch {
       return reply.code(404).send({ success: false, message: 'Report file not found in storage' });
     }

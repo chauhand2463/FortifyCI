@@ -60,7 +60,6 @@ const envSchema = z.object({
 
   WORKER_CONCURRENCY: z.coerce.number().default(5),
   SCAN_TIMEOUT_MS: z.coerce.number().default(300000),
-  REPORT_OUTPUT_DIR: z.string().default('./reports'),
 
   PROMETHEUS_ENABLED: z.coerce.boolean().default(true),
   PROMETHEUS_METRICS_PATH: z.string().default('/metrics'),
