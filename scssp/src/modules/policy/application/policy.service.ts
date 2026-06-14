@@ -208,6 +208,63 @@ export class PolicyService {
     return { passed, reason, blockingCVEs: blocking, policyName: policy.name };
   }
 
+  async evaluateVulnerabilities(
+    vulns: Array<{ vulnerabilityId: string; severity: string; pkgName?: string; packageName?: string; fixedVersion?: string | null }>,
+    policyId?: string,
+  ): Promise<PolicyEvaluationResult> {
+    const prisma = getPrisma();
+
+    const policy = policyId
+      ? await prisma.scanPolicy.findUnique({ where: { id: policyId } })
+      : await prisma.scanPolicy.findFirst({ where: { isDefault: true } });
+
+    if (!policy) return { passed: true, reason: 'No policy configured', blockingCVEs: [], policyName: '' };
+
+    const blocking: PolicyEvaluationResult['blockingCVEs'] = [];
+
+    const activeExceptions = await prisma.vulnerabilityException.findMany({
+      where: { isActive: true, expiresAt: { gt: new Date() } },
+      select: { cveId: true },
+    });
+    const exceptedCves = new Set(activeExceptions.map(e => e.cveId));
+
+    function isBlockable(v: (typeof vulns)[0]): boolean {
+      if (exceptedCves.has(v.vulnerabilityId)) return false;
+      if (policy.blockOnlyFixable) return !!v.fixedVersion;
+      return true;
+    }
+
+    const criticalCount = vulns.filter(v => v.severity === 'CRITICAL' && isBlockable(v)).length;
+    const highCount = vulns.filter(v => v.severity === 'HIGH' && isBlockable(v)).length;
+    const mediumCount = vulns.filter(v => v.severity === 'MEDIUM' && isBlockable(v)).length;
+
+    if (policy.blockOnCritical && criticalCount > 0) {
+      vulns.filter(v => v.severity === 'CRITICAL' && isBlockable(v)).forEach(v => {
+        blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion ?? undefined });
+      });
+    }
+
+    if (policy.blockOnHigh) {
+      const threshold = policy.maxHighCount >= 0 ? policy.maxHighCount : 0;
+      if (highCount > threshold) {
+        vulns.filter(v => v.severity === 'HIGH' && isBlockable(v)).forEach(v => {
+          blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion ?? undefined });
+        });
+      }
+    }
+
+    if (policy.maxMediumCount >= 0 && mediumCount > policy.maxMediumCount) {
+      vulns.filter(v => v.severity === 'MEDIUM' && isBlockable(v)).slice(0, policy.maxMediumCount === 0 ? mediumCount : 5).forEach(v => {
+        blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion ?? undefined });
+      });
+    }
+
+    const passed = blocking.length === 0;
+    const reason = passed ? 'All checks passed' : `${blocking.length} blocking CVE(s) found`;
+
+    return { passed, reason, blockingCVEs: blocking, policyName: policy.name };
+  }
+
   private mapResponse(p: any): PolicyResponse {
     return {
       id: p.id,

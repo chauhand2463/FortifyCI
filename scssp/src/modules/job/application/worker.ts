@@ -389,19 +389,9 @@ async function processLiveScanJob(job: any): Promise<void> {
     await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'EVALUATING', progress: 70 } });
 
     const { policyService } = await import('@modules/policy/application/policy.service');
-    const [registry, ...rest] = imageRef.split('/');
-    const hasDomain = registry.includes('.') || registry === 'localhost' || registry.includes(':');
-    const fullRegistry = hasDomain ? registry : 'docker.io';
-    const repoTag = hasDomain ? rest.join('/') : imageRef;
-    const lastColon = repoTag.lastIndexOf(':');
-    const repository = lastColon > 0 ? repoTag.slice(0, lastColon) : repoTag;
-    const tag = lastColon > 0 ? repoTag.slice(lastColon + 1) : 'latest';
-    const matchedImage = await prisma.image.findFirst({
-      where: { registry: fullRegistry, repository, tag },
-    });
-    const evaluation = matchedImage && policyId
-      ? await policyService.evaluate(matchedImage.id, policyId)
-      : { passed: true, reason: 'No policy evaluation', blockingCVEs: [], policyName: '' };
+    const evaluation = policyId
+      ? await policyService.evaluateVulnerabilities(result.vulnerabilities, policyId)
+      : { passed: true, reason: 'No policy configured', blockingCVEs: [], policyName: '' };
 
     if (evaluation.passed) {
       const { getMinioClient } = await import('@shared/storage/minio');

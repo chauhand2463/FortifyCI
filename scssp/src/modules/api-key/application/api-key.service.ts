@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import * as argon2 from 'argon2';
+import { hash } from '@node-rs/argon2';
 import { getPrisma } from '@shared/database/prisma';
 import { auditService } from '@modules/audit/application/audit.service';
 import { NotFoundError, ValidationError } from '@shared/errors';
@@ -10,7 +10,7 @@ export class ApiKeyService {
     const prisma = getPrisma();
 
     const rawKey = `fci_${crypto.randomBytes(32).toString('hex')}`;
-    const keyHash = await argon2.hash(rawKey);
+    const keyHash = await hash(rawKey);
     const keyPrefix = rawKey.slice(0, 12);
 
     const apiKey = await prisma.apiKey.create({

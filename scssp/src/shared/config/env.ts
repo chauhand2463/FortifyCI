@@ -21,7 +21,7 @@ const envSchema = z.object({
   JWT_ISSUER: z.string().default('fortifyci'),
   JWT_AUDIENCE: z.string().default('fortifyci-api'),
   COOKIE_SECRET: z.string().optional(),
-  CORS_ORIGIN: z.string().default('*'),
+  CORS_ORIGIN: z.string().optional(),
 
   ENCRYPTION_KEY: z.string().min(32),
   ENCRYPTION_IV_LENGTH: z.coerce.number().default(16),
@@ -79,6 +79,13 @@ export function loadEnv(): Env {
     }
     process.exit(1);
   }
+
+  if (result.data.NODE_ENV === 'production' && !result.data.CORS_ORIGIN) {
+    console.error('Environment validation failed:');
+    console.error('  - CORS_ORIGIN is required when NODE_ENV=production');
+    process.exit(1);
+  }
+
   _env = result.data;
   return _env;
 }

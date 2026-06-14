@@ -144,9 +144,11 @@ export async function scanImage(
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    let stdoutBytes = 0;
 
     child.stdout?.on('data', (chunk: Buffer) => {
-      if (stdoutChunks.join('').length < 100 * 1024 * 1024) {
+      stdoutBytes += chunk.byteLength;
+      if (stdoutBytes < 100 * 1024 * 1024) {
         stdoutChunks.push(chunk);
       }
     });

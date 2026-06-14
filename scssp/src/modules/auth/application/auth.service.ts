@@ -1,4 +1,4 @@
-import * as argon2 from 'argon2';
+import { hash, verify } from '@node-rs/argon2';
 import crypto from 'crypto';
 import { getEnv } from '@shared/config/env';
 import { getPrisma } from '@shared/database/prisma';
@@ -76,8 +76,8 @@ export class AuthService {
     if (existingUsername) throw new ConflictError('Username already taken');
 
     const env = getEnv();
-    const passwordHash = await argon2.hash(dto.password, {
-      type: argon2.argon2id,
+    const passwordHash = await hash(dto.password, {
+      algorithm: 2,
       memoryCost: env.ARGON2_MEMORY_COST,
       timeCost: env.ARGON2_TIME_COST,
       parallelism: env.ARGON2_PARALLELISM,
@@ -131,7 +131,7 @@ export class AuthService {
 
     if (!user || !user.isActive) throw new UnauthorizedError('Invalid credentials');
 
-    const valid = await argon2.verify(user.passwordHash, dto.password);
+    const valid = await verify(user.passwordHash, dto.password);
     if (!valid) throw new UnauthorizedError('Invalid credentials');
 
     const { accessToken, refreshToken, expiresIn, permissions } = await this.createTokenPair(user);
@@ -285,8 +285,8 @@ export class AuthService {
     if (!user) throw new ValidationError('Invalid or expired reset token');
 
     const env = getEnv();
-    const passwordHash = await argon2.hash(newPassword, {
-      type: argon2.argon2id,
+    const passwordHash = await hash(newPassword, {
+      algorithm: 2,
       memoryCost: env.ARGON2_MEMORY_COST,
       timeCost: env.ARGON2_TIME_COST,
       parallelism: env.ARGON2_PARALLELISM,
@@ -331,12 +331,12 @@ export class AuthService {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedError('User not found');
 
-    const valid = await argon2.verify(user.passwordHash, currentPassword);
+    const valid = await verify(user.passwordHash, currentPassword);
     if (!valid) throw new UnauthorizedError('Current password is incorrect');
 
     const env = getEnv();
-    const passwordHash = await argon2.hash(newPassword, {
-      type: argon2.argon2id,
+    const passwordHash = await hash(newPassword, {
+      algorithm: 2,
       memoryCost: env.ARGON2_MEMORY_COST,
       timeCost: env.ARGON2_TIME_COST,
       parallelism: env.ARGON2_PARALLELISM,

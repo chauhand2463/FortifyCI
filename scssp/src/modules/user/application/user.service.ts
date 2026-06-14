@@ -1,4 +1,4 @@
-import * as argon2 from 'argon2';
+import { hash } from '@node-rs/argon2';
 import { getEnv } from '@shared/config/env';
 import { getPrisma } from '@shared/database/prisma';
 import { auditService } from '@modules/audit/application/audit.service';
@@ -19,8 +19,8 @@ export class UserService {
     if (!role) throw new ValidationError('Role not found');
 
     const env = getEnv();
-    const passwordHash = await argon2.hash(dto.password, {
-      type: argon2.argon2id,
+    const passwordHash = await hash(dto.password, {
+      algorithm: 2,
       memoryCost: env.ARGON2_MEMORY_COST,
       timeCost: env.ARGON2_TIME_COST,
       parallelism: env.ARGON2_PARALLELISM,

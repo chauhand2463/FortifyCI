@@ -1,5 +1,5 @@
 import { PrismaClient, RoleName, PermissionName } from '@prisma/client';
-import * as argon2 from 'argon2';
+import { hash } from '@node-rs/argon2';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -181,8 +181,8 @@ async function seed(): Promise<void> {
   console.log('Creating admin user...');
   const adminRole = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } })!;
 
-  const adminPassword = await argon2.hash('Admin123!@#', {
-    type: argon2.argon2id,
+  const adminPassword = await hash('Admin123!@#', {
+    algorithm: 2,
     memoryCost: 65536,
     timeCost: 3,
     parallelism: 4,

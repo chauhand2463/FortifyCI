@@ -23,6 +23,8 @@ RUN npx prisma generate
 COPY src/ ./src/
 COPY keys/ ./keys/
 
+RUN npm run build
+
 RUN mkdir -p /app/reports
 
 EXPOSE 3000
@@ -33,6 +35,6 @@ ENV HOST=0.0.0.0
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-RUN printf '#!/bin/sh\nset -e\nnpx prisma db push --accept-data-loss 2>&1\nif [ \"$SKIP_SEED\" != \"true\" ]; then npx tsx prisma/seed.ts 2>&1; fi\nif [ ! -f \"${TRIVY_CACHE_DIR:-/app/.trivy-cache}/db/metadata.json\" ]; then\n  echo \"Pre-downloading Trivy vulnerability DB...\"\n  mkdir -p \"${TRIVY_CACHE_DIR:-/app/.trivy-cache}\"\n  trivy image --download-db-only --cache-dir \"${TRIVY_CACHE_DIR:-/app/.trivy-cache}\" 2>&1 || echo \"Trivy DB download failed, will try at scan time\"\nfi\necho \"Startup complete, starting server...\"\nnode_modules/.bin/tsx src/main.ts\n' > /app/start.sh && chmod +x /app/start.sh
+RUN printf '#!/bin/sh\nset -e\nnpx prisma db push --accept-data-loss 2>&1\nif [ "$SKIP_SEED" != "true" ]; then npx tsx prisma/seed.ts 2>&1; fi\nif [ ! -f "${TRIVY_CACHE_DIR:-/app/.trivy-cache}/db/metadata.json" ]; then\n  echo "Pre-downloading Trivy vulnerability DB..."\n  mkdir -p "${TRIVY_CACHE_DIR:-/app/.trivy-cache}"\n  trivy image --download-db-only --cache-dir "${TRIVY_CACHE_DIR:-/app/.trivy-cache}" 2>&1 || echo "Trivy DB download failed, will try at scan time"\nfi\necho "Startup complete, starting server..."\nnpx tsx src/main.ts\n' > /app/start.sh && chmod +x /app/start.sh
 
 CMD ["/app/start.sh"]
