@@ -10,16 +10,23 @@ import { Spinner, ErrorState, Pagination } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { formatDate, cn } from '@/lib/utils'
-import { ScanSearch, RefreshCw, GitCompare, AlertTriangle } from 'lucide-react'
+import { ScanSearch, RefreshCw, GitCompare, AlertTriangle, Activity, CheckCircle, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function ScansPage() {
   const [page, setPage] = useState(1)
   const { data, isLoading, error, refetch } = useScans(page, 10)
   const { data: activeData } = useActiveScans()
-  const hasActiveScans = activeData?.items?.some(
-    s =>     s.status === 'running' || s.status === 'queued'
-  )
+  const activeScans = activeData?.items ?? []
+  const runningCount = activeScans.filter(s => s.status === 'running').length
+  const queuedCount = activeScans.filter(s => s.status === 'queued').length
+  const hasActiveScans = runningCount + queuedCount > 0
+  const completedToday = activeScans.filter(s => {
+    if (s.status !== 'completed') return false
+    const today = new Date()
+    const scanDate = s.completedAt ? new Date(s.completedAt) : s.startedAt ? new Date(s.startedAt) : null
+    return scanDate && scanDate.toDateString() === today.toDateString()
+  }).length
 
   const statusVariant = (status: string) => {
     switch (status) {
@@ -38,12 +45,6 @@ export default function ScansPage() {
           <h1 className="text-2xl font-bold text-white">Scans</h1>
           <p className="text-sm text-[#5A6380] mt-1">View and manage container image scans</p>
         </div>
-        {hasActiveScans && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#4DA6FF]/10 border border-[#4DA6FF]/20">
-            <span className="h-2 w-2 rounded-full bg-[#4DA6FF] animate-pulse" />
-            <span className="text-xs text-[#4DA6FF] font-medium">Scans running</span>
-          </div>
-        )}
         <Button
           variant="outline"
           size="sm"
@@ -53,6 +54,58 @@ export default function ScansPage() {
           <RefreshCw className={cn('h-4 w-4', hasActiveScans && 'animate-spin')} />
           Refresh
         </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className={cn(
+          'rounded-xl border p-4 transition-all duration-300',
+          hasActiveScans
+            ? 'bg-[#4DA6FF]/5 border-[#4DA6FF]/20'
+            : 'bg-[#0D1022]/60 border-[#1C2150]'
+        )}>
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              'flex h-9 w-9 items-center justify-center rounded-lg',
+              hasActiveScans ? 'bg-[#4DA6FF]/10' : 'bg-[#1C2150]/50'
+            )}>
+              <Activity className={cn('h-4 w-4', hasActiveScans ? 'text-[#4DA6FF]' : 'text-[#5A6380]')} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'text-lg font-bold tabular-nums',
+                  hasActiveScans ? 'text-[#4DA6FF]' : 'text-[#5A6380]'
+                )}>
+                  {runningCount + queuedCount}
+                </span>
+                {hasActiveScans && <span className="h-2 w-2 rounded-full bg-[#4DA6FF] animate-pulse" />}
+              </div>
+              <p className="text-xs text-[#5A6380]">Active</p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-[#1C2150] bg-[#0D1022]/60 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#FFA502]/10">
+              <Clock className="h-4 w-4 text-[#FFA502]" />
+            </div>
+            <div>
+              <span className="text-lg font-bold text-[#FFA502] tabular-nums">{queuedCount}</span>
+              <p className="text-xs text-[#5A6380]">Queued</p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-[#1C2150] bg-[#0D1022]/60 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#00D4AA]/10">
+              <CheckCircle className="h-4 w-4 text-[#00D4AA]" />
+            </div>
+            <div>
+              <span className="text-lg font-bold text-[#00D4AA] tabular-nums">{completedToday}</span>
+              <p className="text-xs text-[#5A6380]">Completed today</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <Card className="overflow-hidden">

@@ -16,21 +16,13 @@ import type { Scan, ImageDetail } from '@/types'
 
 function useImageDetail(id: string) {
   return useQuery({
-    queryKey: ['image', id],
-    queryFn: async () => {
-      const body = await services.getImage(id)
-      return body as ImageDetail
-    },
-    enabled: !!id,
-  })
-}
-
-function useRawImageDetail(id: string) {
-  return useQuery({
     queryKey: ['imageDetail', id],
     queryFn: async () => {
-      const body = await services.getImageDetail(id)
-      return body as Record<string, any>
+      const [detail, _raw] = await Promise.all([
+        services.getImage(id),
+        services.getImageDetail(id).catch(() => null),
+      ])
+      return { detail: detail as ImageDetail, raw: _raw as Record<string, any> }
     },
     enabled: !!id,
   })
@@ -59,9 +51,11 @@ export default function ImageDetailPage() {
   const id = params.id as string
   const [scanning, setScanning] = useState(false)
 
-  const { data: image, isLoading, error } = useImageDetail(id)
-  const { data: rawDetail } = useRawImageDetail(id)
+  const { data: imageData, isLoading, error } = useImageDetail(id)
   const { data: scans, isLoading: scansLoading } = useImageScans(id)
+
+  const image = imageData?.detail ?? null
+  const rawDetail = imageData?.raw ?? null
 
   const handleScan = async () => {
     if (!image) return

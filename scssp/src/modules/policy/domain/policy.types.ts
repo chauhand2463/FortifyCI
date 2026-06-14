@@ -3,6 +3,7 @@ export interface CreatePolicyDto {
   description?: string;
   blockOnCritical?: boolean;
   blockOnHigh?: boolean;
+  blockOnlyFixable?: boolean;
   maxHighCount?: number;
   maxMediumCount?: number;
   slaCriticalDays?: number;
@@ -18,6 +19,7 @@ export interface PolicyResponse {
   description: string | null;
   blockOnCritical: boolean;
   blockOnHigh: boolean;
+  blockOnlyFixable: boolean;
   maxHighCount: number;
   maxMediumCount: number;
   slaCriticalDays: number;

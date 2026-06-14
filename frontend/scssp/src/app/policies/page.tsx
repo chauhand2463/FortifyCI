@@ -282,16 +282,32 @@ export default function PoliciesPage() {
   const [editPolicy, setEditPolicy] = useState<ScanPolicy | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ScanPolicy | null>(null)
 
+  function rulesToBackend(rules: RuleForm[]) {
+    const out: Record<string, any> = { blockOnlyFixable: true }
+    let blockOnCritical = true
+    let blockOnHigh = false
+    let maxHighCount = 0
+    let maxMediumCount = -1
+    for (const r of rules) {
+      const maxC = parseInt(r.maxCount) || 0
+      if (r.severityThreshold === 'critical') {
+        blockOnCritical = r.action === 'block'
+      } else if (r.severityThreshold === 'high') {
+        blockOnHigh = r.action === 'block'
+        maxHighCount = r.action === 'block' ? maxC : -1
+      } else if (r.severityThreshold === 'medium') {
+        maxMediumCount = r.action === 'block' ? maxC : -1
+      }
+    }
+    return { ...out, blockOnCritical, blockOnHigh, maxHighCount, maxMediumCount }
+  }
+
   const handleCreate = async (data: { name: string; description: string; rules: RuleForm[] }) => {
     try {
       await createPolicy.mutateAsync({
         name: data.name,
         description: data.description,
-        rules: data.rules.map(r => ({
-          severityThreshold: r.severityThreshold,
-          maxCount: parseInt(r.maxCount) || 0,
-          action: r.action,
-        })),
+        ...rulesToBackend(data.rules),
       })
       toast.success('Policy created')
       setCreateOpen(false)
@@ -308,11 +324,7 @@ export default function PoliciesPage() {
         data: {
           name: data.name,
           description: data.description,
-          rules: data.rules.map(r => ({
-            severityThreshold: r.severityThreshold,
-            maxCount: parseInt(r.maxCount) || 0,
-            action: r.action,
-          })),
+          ...rulesToBackend(data.rules),
         },
       })
       toast.success('Policy updated')

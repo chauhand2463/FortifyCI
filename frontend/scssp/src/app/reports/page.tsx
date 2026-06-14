@@ -47,7 +47,7 @@ export default function ReportsPage() {
 
   const handleGenerate = () => {
     generateMutation.mutate(
-      { type, format, scanId: scanId || undefined },
+      { type, format, scanId: scanId || undefined, title: `${type}-${new Date().toISOString().slice(0, 10)}` },
       {
         onSuccess: () => toast.success('Report generation started'),
         onError: () => toast.error('Failed to generate report'),

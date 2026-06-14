@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tabs, Spinner, ErrorState, Pagination } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { severityBgClass, formatDate, cn } from '@/lib/utils'
-import { Search, Bug, UserPlus, ShieldOff } from 'lucide-react'
+import { Search, Bug, UserPlus, ShieldOff, Filter } from 'lucide-react'
 import { toast } from 'sonner'
 
 const severityTabs = [
@@ -26,7 +26,13 @@ export default function VulnerabilitiesPage() {
   const [page, setPage] = useState(1)
   const [severity, setSeverity] = useState('all')
   const [search, setSearch] = useState('')
-  const { data, isLoading, error, refetch } = useVulnerabilities(page, 10, severity, search)
+  const [fixableFilter, setFixableFilter] = useState('all')
+  const [epssMin, setEpssMin] = useState('')
+  const { data, isLoading, error, refetch } = useVulnerabilities(
+    page, 10, severity, search,
+    fixableFilter === 'all' ? undefined : fixableFilter === 'fixable',
+    epssMin ? parseFloat(epssMin) : undefined
+  )
 
   const [assignModal, setAssignModal] = useState<{ open: boolean; vulnId: string; cveId: string }>({ open: false, vulnId: '', cveId: '' })
   const [exceptionModal, setExceptionModal] = useState<{ open: boolean; cveId: string }>({ open: false, cveId: '' })
@@ -70,14 +76,37 @@ export default function VulnerabilitiesPage() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <Tabs tabs={severityTabs} activeTab={severity} onTabChange={t => { setSeverity(t); setPage(1) }} />
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#5A6380]" />
-          <Input
-            placeholder="Search by CVE or package..."
-            className="pl-9 transition-all duration-200 focus:border-[#00D4AA]/50"
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1) }}
-          />
+        <div className="flex items-center gap-3">
+          <select
+            value={fixableFilter}
+            onChange={e => { setFixableFilter(e.target.value); setPage(1) }}
+            className="rounded-lg border border-[#1C2150] bg-[#0D1022] px-3 py-2 text-xs text-[#EEF0F7] focus:outline-none focus:ring-2 focus:ring-[#00D4AA]/50"
+          >
+            <option value="all">All CVEs</option>
+            <option value="fixable">Fixable only</option>
+            <option value="unfixable">Unfixable only</option>
+          </select>
+          <div className="relative w-28">
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              placeholder="EPSS ≥"
+              value={epssMin}
+              onChange={e => { setEpssMin(e.target.value); setPage(1) }}
+              className="w-full rounded-lg border border-[#1C2150] bg-[#0D1022] px-3 py-2 text-xs text-[#EEF0F7] placeholder:text-[#5A6380] focus:outline-none focus:ring-2 focus:ring-[#00D4AA]/50"
+            />
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#5A6380]" />
+            <Input
+              placeholder="Search by CVE or package..."
+              className="pl-9 transition-all duration-200 focus:border-[#00D4AA]/50"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+            />
+          </div>
         </div>
       </div>
 
@@ -96,6 +125,7 @@ export default function VulnerabilitiesPage() {
                   <TableHead>Version</TableHead>
                   <TableHead>Severity</TableHead>
                   <TableHead>CVSS</TableHead>
+                  <TableHead>EPSS</TableHead>
                   <TableHead>Fix Version</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Published</TableHead>
@@ -105,7 +135,7 @@ export default function VulnerabilitiesPage() {
               <TableBody>
                 {(data?.items ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12 text-[#5A6380]">No vulnerabilities found</TableCell>
+                      <TableCell colSpan={10} className="text-center py-12 text-[#5A6380]">No vulnerabilities found</TableCell>
                   </TableRow>
                 ) : (
                   (data?.items ?? []).map(vuln => (
@@ -132,6 +162,18 @@ export default function VulnerabilitiesPage() {
                         )}>
                           {vuln.cvss.toFixed(1)}
                         </span>
+                      </TableCell>
+                      <TableCell>
+                        {vuln.epssScore !== undefined ? (
+                          <span className={cn(
+                            'font-mono text-xs tabular-nums',
+                            vuln.epssScore >= 0.5 ? 'text-[#FF4757]' : vuln.epssScore >= 0.1 ? 'text-[#FFA502]' : 'text-[#5A6380]'
+                          )}>
+                            {(vuln.epssScore * 100).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[#3A4058]">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {vuln.fixVersion ? (

@@ -1,21 +1,23 @@
 'use client'
 
-import { useState } from 'react'
-import { useSBOM, useImages, useGenerateSBOM } from '@/hooks/use-queries'
+import { useState, useDeferredValue } from 'react'
+import { useSBOM, useImages, useGenerateSBOM, useSBOMPackageSearch } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Tabs, Spinner, ErrorState } from '@/components/ui/shared'
+import { Input } from '@/components/ui/input'
+import { Tabs, Spinner, ErrorState, Skeleton } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select } from '@/components/ui/select'
 import { severityBgClass, formatDate, cn } from '@/lib/utils'
-import { Package, Scale, GitBranch, Loader2 } from 'lucide-react'
+import { Package, Scale, GitBranch, Loader2, Search } from 'lucide-react'
 import { toast } from 'sonner'
 
 const sbomTabs = [
   { id: 'packages', label: 'Packages' },
   { id: 'licenses', label: 'Licenses' },
   { id: 'dependencies', label: 'Dependencies' },
+  { id: 'search', label: 'Search' },
 ]
 
 export default function SBOMPage() {
@@ -25,7 +27,10 @@ export default function SBOMPage() {
 
   const [imageId, setImageId] = useState('')
   const [tab, setTab] = useState('packages')
+  const [searchQuery, setSearchQuery] = useState('')
+  const deferredSearch = useDeferredValue(searchQuery)
   const { data: sbom, isLoading, error, refetch } = useSBOM(imageId)
+  const { data: searchResults, isLoading: searchLoading } = useSBOMPackageSearch(deferredSearch)
   const generateMutation = useGenerateSBOM()
 
   const selectedLabel = imageOptions.find(o => o.value === imageId)?.label || ''
@@ -173,6 +178,76 @@ export default function SBOMPage() {
                   ))}
                 </TableBody>
               </Table>
+            </Card>
+          )}
+
+          {tab === 'search' && (
+            <Card className="overflow-hidden">
+              <CardHeader>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#5A6380]" />
+                  <Input
+                    placeholder="Search across all images... e.g. log4j, openssl, express"
+                    className="pl-9 transition-all duration-200 focus:border-[#00D4AA]/50"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <CardDescription className="mt-2">
+                  {searchQuery.length < 2
+                    ? 'Type at least 2 characters to search packages across all images'
+                    : searchResults?.total !== undefined
+                      ? `Found ${searchResults.total} package(s) matching "${searchQuery}"`
+                      : 'Searching...'}
+                </CardDescription>
+              </CardHeader>
+              {searchQuery.length >= 2 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Package</TableHead>
+                      <TableHead>Version</TableHead>
+                      <TableHead>Ecosystem</TableHead>
+                      <TableHead>Image</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {searchLoading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 4 }).map((_, j) => (
+                            <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : (searchResults?.items ?? []).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-8 text-[#5A6380]">
+                          No packages found matching "{searchQuery}"
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      (searchResults?.items ?? []).map((pkg, idx) => (
+                        <TableRow key={`${pkg.scanId}-${pkg.name}-${idx}`} className="group">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#4DA6FF]/10 group-hover:bg-[#4DA6FF]/20 transition-colors">
+                                <Package className="h-4 w-4 text-[#4DA6FF]" />
+                              </div>
+                              <span className="font-medium text-white">{pkg.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-[#5A6380]">{pkg.version}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{pkg.ecosystem}</Badge>
+                          </TableCell>
+                          <TableCell className="text-[#5A6380] text-xs font-mono">{pkg.imageName}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </Card>
           )}
 

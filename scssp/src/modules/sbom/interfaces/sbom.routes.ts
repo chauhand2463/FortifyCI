@@ -7,6 +7,16 @@ import { ValidationError } from '@shared/errors';
 export async function sbomRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authenticate);
 
+  app.get('/search', {
+    preHandler: [authorize('SBOM_READ')],
+  }, async (request: FastifyRequest) => {
+    const { q, page, limit } = request.query as { q?: string; page?: string; limit?: string };
+    if (!q || q.length < 2) return { success: true, items: [], total: 0, page: 1, limit: 50 };
+
+    const result = await sbomService.searchPackages(q, Number(page) || 1, Number(limit) || 50);
+    return { success: true, ...result };
+  });
+
   app.post('/', {
     preHandler: [authorize('SBOM_CREATE')],
   }, async (request: FastifyRequest, reply: FastifyReply) => {

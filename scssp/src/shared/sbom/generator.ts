@@ -15,36 +15,26 @@ export interface SbomPackage {
   purl?: string;
 }
 
-function writeDockerConfig(credentials?: RegistryCredential | null): (() => void) | null {
+function writeDockerConfig(credentials?: RegistryCredential | null): { cleanup: () => void; dockerConfigDir: string } | null {
   if (!credentials || !credentials.username || !credentials.password) return null;
 
-  const dockerDir = path.join(os.homedir(), '.docker');
+  const dockerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fortifyci-docker-'));
   const configPath = path.join(dockerDir, 'config.json');
-  fs.mkdirSync(dockerDir, { recursive: true });
 
   const serverAddress = credentials.serverAddress || 'https://index.docker.io/v1/';
   const auth = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
 
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch {}
+  const config = { auths: { [serverAddress]: { auth } } };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  logger.info({ serverAddress, dockerDir }, 'Docker registry credentials configured for SBOM generation');
 
-  const auths = (existing.auths as Record<string, unknown>) || {};
-  auths[serverAddress] = { auth };
-
-  fs.writeFileSync(configPath, JSON.stringify({ ...existing, auths }, null, 2));
-  logger.info({ serverAddress }, 'Docker registry credentials configured for SBOM generation');
-
-  return () => {
-    try {
-      delete auths[serverAddress];
-      if (Object.keys(auths).length === 0) {
-        fs.unlinkSync(configPath);
-      } else {
-        fs.writeFileSync(configPath, JSON.stringify({ ...existing, auths }, null, 2));
-      }
-    } catch {}
+  return {
+    dockerConfigDir: dockerDir,
+    cleanup: () => {
+      try {
+        fs.rmSync(dockerDir, { recursive: true, force: true });
+      } catch {}
+    },
   };
 }
 
@@ -54,7 +44,7 @@ export function generateTrivySbom(
   credentials?: RegistryCredential | null,
 ): Promise<string> {
   const env = getEnv();
-  const cleanup = writeDockerConfig(credentials);
+  const credResult = writeDockerConfig(credentials);
 
   const trivyFormat = format === 'spdx' ? 'spdx-json' : 'cyclonedx';
 
@@ -62,7 +52,7 @@ export function generateTrivySbom(
     'image',
     '--format', trivyFormat,
     '--cache-dir', path.resolve(env.TRIVY_CACHE_DIR),
-    '--timeout', `${env.TRIVY_TIMEOUT}ms`,
+    '--timeout', `${Math.floor(env.TRIVY_TIMEOUT / 60000)}m${Math.floor((env.TRIVY_TIMEOUT % 60000) / 1000)}s`,
     '--db-repository', env.TRIVY_DB_REPOSITORY,
     '--java-db-repository', env.TRIVY_JAVA_DB_REPOSITORY,
     imageRef,
@@ -74,6 +64,9 @@ export function generateTrivySbom(
     const child = spawn(env.TRIVY_BIN_PATH, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: env.TRIVY_TIMEOUT + 10000,
+      env: credResult
+        ? { ...process.env, DOCKER_CONFIG: credResult.dockerConfigDir }
+        : process.env,
     });
 
     const stdoutChunks: Buffer[] = [];
@@ -88,7 +81,7 @@ export function generateTrivySbom(
     });
 
     child.on('close', (code) => {
-      cleanup?.();
+      credResult?.cleanup();
 
       if (code === 0) {
         const stdout = Buffer.concat(stdoutChunks).toString('utf8');
@@ -105,7 +98,7 @@ export function generateTrivySbom(
     });
 
     child.on('error', (err) => {
-      cleanup?.();
+      credResult?.cleanup();
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         reject(new Error(`Trivy binary not found at '${env.TRIVY_BIN_PATH}'.`));
       } else {

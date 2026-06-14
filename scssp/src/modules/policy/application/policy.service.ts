@@ -16,6 +16,7 @@ export class PolicyService {
         description: dto.description,
         blockOnCritical: dto.blockOnCritical ?? true,
         blockOnHigh: dto.blockOnHigh ?? false,
+        blockOnlyFixable: dto.blockOnlyFixable ?? true,
         maxHighCount: dto.maxHighCount ?? 0,
         maxMediumCount: dto.maxMediumCount ?? -1,
         slaCriticalDays: dto.slaCriticalDays ?? 7,
@@ -67,6 +68,7 @@ export class PolicyService {
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.blockOnCritical !== undefined) data.blockOnCritical = dto.blockOnCritical;
     if (dto.blockOnHigh !== undefined) data.blockOnHigh = dto.blockOnHigh;
+    if (dto.blockOnlyFixable !== undefined) data.blockOnlyFixable = dto.blockOnlyFixable;
     if (dto.maxHighCount !== undefined) data.maxHighCount = dto.maxHighCount;
     if (dto.maxMediumCount !== undefined) data.maxMediumCount = dto.maxMediumCount;
     if (dto.slaCriticalDays !== undefined) data.slaCriticalDays = dto.slaCriticalDays;
@@ -160,12 +162,27 @@ export class PolicyService {
 
     const vulns = lastScan.vulnerabilities;
     const blocking: PolicyEvaluationResult['blockingCVEs'] = [];
-    const criticalCount = vulns.filter((v) => v.severity === 'CRITICAL').length;
-    const highCount = vulns.filter((v) => v.severity === 'HIGH').length;
-    const mediumCount = vulns.filter((v) => v.severity === 'MEDIUM').length;
+
+    const activeExceptions = await prisma.vulnerabilityException.findMany({
+      where: { isActive: true, expiresAt: { gt: new Date() } },
+      select: { cveId: true, imageId: true },
+    });
+    const globalExceptionCves = new Set(activeExceptions.filter(e => !e.imageId).map(e => e.cveId));
+    const imageExceptionCves = new Set(activeExceptions.filter(e => e.imageId === imageId).map(e => e.cveId));
+    const exceptedCves = new Set([...globalExceptionCves, ...imageExceptionCves]);
+
+    function isBlockable(v: typeof vulns[0]): boolean {
+      if (exceptedCves.has(v.vulnerabilityId)) return false;
+      if (policy.blockOnlyFixable) return !!v.fixedVersion;
+      return true;
+    }
+
+    const criticalCount = vulns.filter((v) => v.severity === 'CRITICAL' && isBlockable(v)).length;
+    const highCount = vulns.filter((v) => v.severity === 'HIGH' && isBlockable(v)).length;
+    const mediumCount = vulns.filter((v) => v.severity === 'MEDIUM' && isBlockable(v)).length;
 
     if (policy.blockOnCritical && criticalCount > 0) {
-      vulns.filter((v) => v.severity === 'CRITICAL').forEach((v) => {
+      vulns.filter((v) => v.severity === 'CRITICAL' && isBlockable(v)).forEach((v) => {
         blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion });
       });
     }
@@ -173,14 +190,14 @@ export class PolicyService {
     if (policy.blockOnHigh) {
       const threshold = policy.maxHighCount >= 0 ? policy.maxHighCount : 0;
       if (highCount > threshold) {
-        vulns.filter((v) => v.severity === 'HIGH').forEach((v) => {
+        vulns.filter((v) => v.severity === 'HIGH' && isBlockable(v)).forEach((v) => {
           blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion });
         });
       }
     }
 
     if (policy.maxMediumCount >= 0 && mediumCount > policy.maxMediumCount) {
-      vulns.filter((v) => v.severity === 'MEDIUM').slice(0, policy.maxMediumCount === 0 ? mediumCount : 5).forEach((v) => {
+      vulns.filter((v) => v.severity === 'MEDIUM' && isBlockable(v)).slice(0, policy.maxMediumCount === 0 ? mediumCount : 5).forEach((v) => {
         blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion });
       });
     }
@@ -198,6 +215,7 @@ export class PolicyService {
       description: p.description,
       blockOnCritical: p.blockOnCritical,
       blockOnHigh: p.blockOnHigh,
+      blockOnlyFixable: p.blockOnlyFixable ?? true,
       maxHighCount: p.maxHighCount,
       maxMediumCount: p.maxMediumCount,
       slaCriticalDays: p.slaCriticalDays,

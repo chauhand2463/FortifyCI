@@ -2,7 +2,7 @@ import { getPrisma } from '@shared/database/prisma';
 import { auditService } from '@modules/audit/application/audit.service';
 import { NotFoundError } from '@shared/errors';
 import { getQueue } from '@shared/queue';
-import type { CreateSbomDto, SbomQueryDto, SbomResponse, PaginatedSboms } from '../domain/sbom.types';
+import type { CreateSbomDto, SbomQueryDto, SbomResponse, PaginatedSboms, PackageSearchResult } from '../domain/sbom.types';
 
 export class SbomService {
   async generate(dto: CreateSbomDto, userId: string): Promise<SbomResponse> {
@@ -96,6 +96,50 @@ export class SbomService {
       description: 'SBOM deleted',
       userId,
     });
+  }
+
+  async searchPackages(query: string, page = 1, limit = 50): Promise<{ items: PackageSearchResult[]; total: number; page: number; limit: number }> {
+    const prisma = getPrisma();
+    const skip = (page - 1) * limit;
+
+    const where = {
+      name: { contains: query, mode: 'insensitive' as const },
+    };
+
+    const [items, total] = await Promise.all([
+      prisma.package.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          scan: {
+            select: {
+              id: true,
+              imageRef: true,
+              image: { select: { id: true, name: true, tag: true, registry: true, repository: true } },
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.package.count({ where }),
+    ]);
+
+    return {
+      items: items.map((p) => ({
+        id: p.id,
+        name: p.name,
+        version: p.version,
+        ecosystem: p.ecosystem,
+        purl: p.purl,
+        scanId: p.scanId,
+        imageRef: p.scan.imageRef,
+        imageName: p.scan.image ? `${p.scan.image.registry}/${p.scan.image.repository}:${p.scan.image.tag}` : p.scan.imageRef,
+      })),
+      total,
+      page,
+      limit,
+    };
   }
 
   private mapSbomResponse(sbom: any): SbomResponse {

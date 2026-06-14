@@ -47,36 +47,26 @@ interface ActiveProcess {
 
 const activeProcesses = new Map<string, ActiveProcess>();
 
-function writeDockerConfig(credentials?: RegistryCredential | null): (() => void) | null {
+function writeDockerConfig(credentials?: RegistryCredential | null): { cleanup: () => void; dockerConfigDir: string } | null {
   if (!credentials || !credentials.username || !credentials.password) return null;
 
-  const dockerDir = path.join(os.homedir(), '.docker');
+  const dockerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fortifyci-docker-'));
   const configPath = path.join(dockerDir, 'config.json');
-  fs.mkdirSync(dockerDir, { recursive: true });
 
   const serverAddress = credentials.serverAddress || 'https://index.docker.io/v1/';
   const auth = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
 
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch {}
+  const config = { auths: { [serverAddress]: { auth } } };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  logger.info({ serverAddress, dockerDir }, 'Docker registry credentials configured for scan');
 
-  const auths = (existing.auths as Record<string, unknown>) || {};
-  auths[serverAddress] = { auth };
-
-  fs.writeFileSync(configPath, JSON.stringify({ ...existing, auths }, null, 2));
-  logger.info({ serverAddress }, 'Docker registry credentials configured for scan');
-
-  return () => {
-    try {
-      delete auths[serverAddress];
-      if (Object.keys(auths).length === 0) {
-        fs.unlinkSync(configPath);
-      } else {
-        fs.writeFileSync(configPath, JSON.stringify({ ...existing, auths }, null, 2));
-      }
-    } catch {}
+  return {
+    dockerConfigDir: dockerDir,
+    cleanup: () => {
+      try {
+        fs.rmSync(dockerDir, { recursive: true, force: true });
+      } catch {}
+    },
   };
 }
 
@@ -122,7 +112,7 @@ export async function scanImage(
 ): Promise<TrivyResult> {
   const env = getEnv();
   const startTime = Date.now();
-  const cleanup = writeDockerConfig(credentials);
+  const credResult = writeDockerConfig(credentials);
 
   const cacheDir = path.resolve(env.TRIVY_CACHE_DIR);
 
@@ -131,7 +121,7 @@ export async function scanImage(
     '--format', 'json',
     '--severity', 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN',
     '--cache-dir', cacheDir,
-    '--timeout', `${env.TRIVY_TIMEOUT}ms`,
+    '--timeout', `${Math.floor(env.TRIVY_TIMEOUT / 60000)}m${Math.floor((env.TRIVY_TIMEOUT % 60000) / 1000)}s`,
     '--db-repository', env.TRIVY_DB_REPOSITORY,
     '--java-db-repository', env.TRIVY_JAVA_DB_REPOSITORY,
     imageRef,
@@ -143,6 +133,9 @@ export async function scanImage(
     const child = spawn(env.TRIVY_BIN_PATH, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: env.TRIVY_TIMEOUT + 10000,
+      env: credResult
+        ? { ...process.env, DOCKER_CONFIG: credResult.dockerConfigDir }
+        : process.env,
     });
 
     if (scanId) {
@@ -164,7 +157,7 @@ export async function scanImage(
 
     child.on('close', (code, signal) => {
       if (scanId) activeProcesses.delete(scanId);
-      cleanup?.();
+      credResult?.cleanup();
 
       if (code === 0) {
         try {
@@ -223,7 +216,7 @@ export async function scanImage(
 
     child.on('error', (err) => {
       if (scanId) activeProcesses.delete(scanId);
-      cleanup?.();
+      credResult?.cleanup();
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         reject(new Error(`Trivy binary not found at '${env.TRIVY_BIN_PATH}'. Install trivy or set TRIVY_BIN_PATH.`));
       } else {

@@ -37,10 +37,18 @@ export function useScan(id: string) {
   })
 }
 
-export function useVulnerabilities(page = 1, pageSize = 10, severity?: string, search = '') {
+export function useVulnerabilities(page = 1, pageSize = 10, severity?: string, search = '', fixable?: boolean, epssMin?: number) {
   return useQuery({
-    queryKey: ['vulnerabilities', page, pageSize, severity, search],
-    queryFn: () => services.getVulnerabilities(page, pageSize, severity, search),
+    queryKey: ['vulnerabilities', page, pageSize, severity, search, fixable, epssMin],
+    queryFn: () => services.getVulnerabilities(page, pageSize, severity, search, fixable, epssMin),
+  })
+}
+
+export function useSBOMPackageSearch(q: string) {
+  return useQuery({
+    queryKey: ['sbom-search', q],
+    queryFn: () => services.searchSBOMPackages(q),
+    enabled: q.length >= 2,
   })
 }
 
@@ -67,8 +75,8 @@ export function useReports() {
 export function useGenerateReport() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ type, format, scanId }: { type: string; format: string; scanId?: string }) =>
-      services.createReport(type, format, scanId),
+    mutationFn: ({ type, format, scanId, title }: { type: string; format: string; scanId?: string; title?: string }) =>
+      services.createReport(title || type, format, scanId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reports'] }),
   })
 }
@@ -238,8 +246,9 @@ export function useLeaderboard() {
 
 // Assignments
 export function useAssignments(params?: { status?: string; assigneeId?: string; breached?: boolean; page?: number; limit?: number }) {
+  const stableKey = params ? JSON.stringify(params) : 'all'
   return useQuery({
-    queryKey: ['assignments', params],
+    queryKey: ['assignments', stableKey],
     queryFn: () => services.assignments.list(params),
   })
 }

@@ -2,17 +2,31 @@
 
 import { useMemo } from 'react'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 import { useStatistics, useChartData, useScans, useImages, usePostureTrend, useAssignments, useExceptions } from '@/hooks/use-queries'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StatusDot } from '@/components/ui/status-dot'
-import { Spinner, ErrorState } from '@/components/ui/shared'
-import { formatRelativeTime, cn } from '@/lib/utils'
+import { ErrorState } from '@/components/ui/shared'
+import { SkeletonCard, SkeletonTable } from '@/components/ui/skeleton'
+import { SeverityDonutChart, ScanTrendChart, PostureChart } from '@/components/dashboard/dashboard-charts'
+import { formatRelativeTime, cn, severityBgClass } from '@/lib/utils'
 import { useAuthStore } from '@/store'
-import type { ScanTrend, MonthlySecurity, VulnerabilitySeverity } from '@/types'
+import type { ScanTrend, MonthlySecurity, VulnerabilitySeverity, PostureTrend } from '@/types'
 import {
   Container, Bug, Shield, AlertTriangle, CheckCircle,
+  ArrowUp, ArrowDown, ScanSearch, Activity,
 } from 'lucide-react'
+
+const fadeUp = {
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+}
+
+function computeDelta(trend: ScanTrend[], key: 'scans' | 'vulnerabilities'): number | null {
+  if (!trend || trend.length < 2) return null
+  return trend[trend.length - 1][key] - trend[0][key]
+}
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
@@ -24,157 +38,239 @@ export default function DashboardPage() {
   const { data: breachedAssignments } = useAssignments({ breached: true })
   const { data: pendingExceptions } = useExceptions({ isActive: true })
 
-  const statCards = useMemo(() => [
-    { label: 'Total Images', value: stats?.totalImages ?? 0, icon: Container, color: 'text-[#4DA6FF]', bg: 'bg-[#4DA6FF]/10', change: '+2 this week' },
-    { label: 'Total Vulnerabilities', value: stats?.totalVulnerabilities ?? 0, icon: Bug, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: '+12 new' },
-    { label: 'Critical', value: stats?.criticalVulnerabilities ?? 0, icon: AlertTriangle, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: '+3 this week' },
-    { label: 'High', value: stats?.highVulnerabilities ?? 0, icon: AlertTriangle, color: 'text-[#FFA502]', bg: 'bg-[#FFA502]/10', change: 'Stable' },
-    { label: 'Fixes Available', value: stats?.fixesAvailable ?? 0, icon: CheckCircle, color: 'text-[#00D4AA]', bg: 'bg-[#00D4AA]/10', change: 'Action needed' },
-    { label: 'Images at Risk', value: stats?.imagesAtRisk ?? 0, icon: Shield, color: 'text-[#FF4757]', bg: 'bg-[#FF4757]/10', change: 'Needs review' },
-  ], [stats])
-
-  const severityData: VulnerabilitySeverity[] = useMemo(() => (chartData?.vulnerabilitySeverity ?? []) as VulnerabilitySeverity[], [chartData])
   const trendData: ScanTrend[] = useMemo(() => (chartData?.scanTrend ?? []) as ScanTrend[], [chartData])
+  const severityData: VulnerabilitySeverity[] = useMemo(() => (chartData?.vulnerabilitySeverity ?? []) as VulnerabilitySeverity[], [chartData])
   const monthlyData: MonthlySecurity[] = useMemo(() => (chartData?.monthlySecurity ?? []) as MonthlySecurity[], [chartData])
+  const postureData: PostureTrend[] = useMemo(() => (postureTrend ?? []) as PostureTrend[], [postureTrend])
 
-  const maxTrend = useMemo(() => Math.max(...trendData.map((d: ScanTrend) => d.vulnerabilities), 1), [trendData])
-  const maxMonthly = useMemo(() => Math.max(...monthlyData.flatMap((d: MonthlySecurity) => [d.critical, d.high, d.medium, d.low]), 1), [monthlyData])
-  const severityTotal = useMemo(() => severityData.reduce((s: number, d: VulnerabilitySeverity) => s + d.value, 0), [severityData])
+  const vulnDelta = useMemo(() => computeDelta(trendData, 'vulnerabilities'), [trendData])
+  const scanDelta = useMemo(() => computeDelta(trendData, 'scans'), [trendData])
 
-  if (statsLoading || chartLoading) {
+  const totalVulns = stats?.totalVulnerabilities ?? 0
+  const criticalCount = stats?.criticalVulnerabilities ?? 0
+  const highCount = stats?.highVulnerabilities ?? 0
+  const imagesAtRisk = stats?.imagesAtRisk ?? 0
+  const fixesAvailable = stats?.fixesAvailable ?? 0
+  const totalImages = stats?.totalImages ?? 0
+  const scannedImages = stats?.scannedImages ?? 0
+
+  const breachedCount = breachedAssignments?.items?.length ?? 0
+  const exceptionCount = pendingExceptions?.items?.length ?? 0
+
+  const isLoading = statsLoading || chartLoading
+
+  if (statsError) return <ErrorState message="Failed to load dashboard data" onRetry={() => refetchStats()} />
+
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Spinner size="lg" />
+      <div className="space-y-6">
+        <SkeletonCard className="h-40" />
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+        <SkeletonCard className="h-72" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonCard className="h-80" />
+          <SkeletonCard className="h-80" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonCard className="h-20" />
+          <SkeletonCard className="h-20" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonCard className="h-64" />
+          <SkeletonCard className="h-64" />
+        </div>
       </div>
     )
   }
 
-  if (statsError) return <ErrorState message="Failed to load dashboard data" onRetry={() => refetchStats()} />
+  if (totalImages === 0 && totalVulns === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00D4AA]/20 to-[#059669]/10 border border-[#00D4AA]/20">
+          <Shield className="h-8 w-8 text-[#00D4AA]" />
+        </div>
+        <h1 className="text-2xl font-bold text-white">Welcome to FortifyCI</h1>
+        <p className="mt-3 text-[#5A6380] max-w-md">
+          Your container security dashboard is ready. Register an image and run your first scan to see security insights.
+        </p>
+        <Link
+          href="/images"
+          className="mt-6 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#00D4AA] to-[#059669] px-5 py-2.5 text-sm font-medium text-[#080A14] hover:from-[#05C091] hover:to-[#059669] transition-all duration-200 shadow-lg shadow-[#00D4AA]/15"
+        >
+          <ScanSearch className="h-4 w-4" />
+          Go to Images
+        </Link>
+      </div>
+    )
+  }
 
-  const latestPostureScore = postureTrend?.length ? postureTrend[postureTrend.length - 1].score : 0
-  const postureColor = latestPostureScore >= 80 ? '#00D4AA' : latestPostureScore >= 50 ? '#FFA502' : '#FF4757'
-  const breachedCount = breachedAssignments?.items?.length ?? 0
-  const exceptionCount = pendingExceptions?.items?.length ?? 0
-
-  const postureRadius = 70
-  const postureCircumference = 2 * Math.PI * postureRadius
-  const postureOffset = postureCircumference * (1 - latestPostureScore / 100)
+  const statCards = [
+    {
+      label: 'Total Vulnerabilities',
+      value: totalVulns,
+      delta: vulnDelta,
+      icon: Bug,
+      color: 'text-[#FF4757]',
+      bg: 'bg-[#FF4757]/10',
+    },
+    {
+      label: 'Images Scanned',
+      value: scannedImages,
+      delta: scanDelta,
+      icon: ScanSearch,
+      color: 'text-[#00D4AA]',
+      bg: 'bg-[#00D4AA]/10',
+    },
+    {
+      label: 'Critical',
+      value: criticalCount,
+      icon: AlertTriangle,
+      color: 'text-[#FF4757]',
+      bg: 'bg-[#FF4757]/10',
+    },
+    {
+      label: 'High',
+      value: highCount,
+      icon: AlertTriangle,
+      color: 'text-[#FFA502]',
+      bg: 'bg-[#FFA502]/10',
+    },
+    {
+      label: 'Images at Risk',
+      value: imagesAtRisk,
+      icon: Container,
+      color: 'text-[#FF4757]',
+      bg: 'bg-[#FF4757]/10',
+    },
+    {
+      label: 'Fixes Available',
+      value: fixesAvailable,
+      icon: CheckCircle,
+      color: 'text-[#00D4AA]',
+      bg: 'bg-[#00D4AA]/10',
+    },
+  ]
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-[#1C2150] bg-gradient-to-br from-[#0D1022] via-[#0D1022]/80 to-[#00D4AA]/5 p-6 lg:p-8">
+      {/* 1. KPI Hero — single large metric */}
+      <motion.div
+        variants={fadeUp} initial="initial" animate="animate"
+        className="relative overflow-hidden rounded-2xl border border-[#1C2150] bg-gradient-to-br from-[#0D1022] via-[#0D1022]/80 to-[#00D4AA]/5 p-8"
+      >
         <div className="absolute top-0 right-0 w-96 h-96 bg-[#00D4AA]/5 rounded-full blur-3xl" />
-        <div className="relative">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00D4AA]">
-              <Shield className="h-4 w-4 text-[#080A14]" />
-            </div>
-            <span className="text-sm font-medium text-[#00D4AA]">Security Dashboard</span>
-          </div>
-          <h1 className="text-3xl font-bold text-white mt-2">
-            Welcome back, {user?.name?.split(' ')[0] || 'User'}
-          </h1>
-          <p className="text-[#5A6380] mt-2 max-w-xl">
-            Your container security posture overview. Monitor vulnerabilities, track scans, 
-            and manage your container images across all environments.
-          </p>
-          <div className="flex flex-wrap gap-3 mt-5">
-            {[
-              { label: 'Total Scans', value: scansData?.total ?? 0, color: 'text-[#00D4AA]' },
-              { label: 'Scan Rate', value: `${Math.round((stats?.scannedImages ?? 0) / Math.max(stats?.totalImages ?? 1, 1) * 100)}%`, color: 'text-[#00D4AA]' },
-              { label: 'Critical CVEs', value: severityData.find(d => d.name === 'Critical')?.value ?? 0, color: 'text-[#FF4757]' },
-            ].map(item => (
-              <div key={item.label} className="flex items-center gap-2 rounded-lg border border-[#1C2150] bg-[#0D1022]/50 px-3 py-2">
-                <span className="text-xs text-[#5A6380]">{item.label}</span>
-                <span className={cn('text-sm font-semibold', item.color)}>{item.value}</span>
+        <div className="relative flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#FF4757]/10">
+                <Bug className="h-4 w-4 text-[#FF4757]" />
               </div>
-            ))}
+              <span className="text-xs font-medium text-[#5A6380] tracking-wider uppercase">Security Overview</span>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="text-5xl font-bold text-white tabular-nums tracking-tight">{totalVulns.toLocaleString()}</span>
+              <span className="text-lg text-[#5A6380] font-medium">Total Vulnerabilities</span>
+            </div>
+            {vulnDelta !== null && vulnDelta !== 0 && (
+              <div className={cn(
+                'flex items-center gap-1.5 mt-2 text-sm font-medium',
+                vulnDelta < 0 ? 'text-[#00D4AA]' : 'text-[#FF4757]'
+              )}>
+                {vulnDelta < 0 ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                <span>{Math.abs(vulnDelta)} from last week</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 self-start mt-1">
+            <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium', severityBgClass(criticalCount > 0 ? 'critical' : 'none'))}>
+              <span className={cn('h-1.5 w-1.5 rounded-full', criticalCount > 0 ? 'bg-red-400' : 'bg-green-400')} />
+              {criticalCount} Critical
+            </span>
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="overflow-x-auto -mx-4 px-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 min-w-[600px]">
-          {statCards.map(card => {
+      {/* 2. Stat Grid — 3x2 (dense) */}
+      <motion.div variants={fadeUp} initial="initial" animate="animate" className="overflow-x-auto -mx-4 px-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 min-w-[500px]">
+          {statCards.map((card, idx) => {
             const Icon = card.icon
             return (
-              <Card key={card.label} className="group hover:border-[#252A5A] transition-all duration-200">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg transition-colors', card.bg, 'group-hover:scale-105 duration-200')}>
-                      <Icon className={cn('h-5 w-5', card.color)} />
+              <motion.div
+                key={card.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.04 }}
+              >
+                <Card className="group hover:border-[#252A5A] transition-all duration-200 hover:shadow-lg hover:shadow-[#00D4AA]/5">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-300', card.bg, 'group-hover:scale-110')}>
+                        <Icon className={cn('h-5 w-5', card.color)} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-[#5A6380] font-medium uppercase tracking-wider truncate">{card.label}</p>
+                        <p className="text-xl font-bold text-white mt-0.5 tabular-nums">{card.value.toLocaleString()}</p>
+                        {card.delta !== undefined && card.delta !== null ? (
+                          <p className={cn(
+                            'text-[11px] font-medium mt-0.5',
+                            card.delta < 0 ? 'text-[#00D4AA]' : card.delta > 0 ? 'text-[#FF4757]' : 'text-[#3A4058]'
+                          )}>
+                            {card.delta > 0 ? '+' : ''}{card.delta} this week
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-[#5A6380] font-medium uppercase tracking-wider truncate">{card.label}</p>
-                      <p className="text-xl font-bold text-white mt-0.5 tabular-nums">{card.value.toLocaleString()}</p>
-                      <p className="text-[10px] text-[#3A4058] mt-0.5">{card.change}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </motion.div>
             )
           })}
         </div>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* 3. Posture Chart — full width (breathing room) */}
+      {postureData.length > 0 && (
+        <motion.div variants={fadeUp} initial="initial" animate="animate">
+          <Card className="overflow-hidden">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Activity className="h-5 w-5 text-[#00D4AA]" />
+                <CardTitle>Security Posture Trend</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="px-6 pb-4">
+                <PostureChart data={postureData.map(d => ({ date: d.date, score: d.score }))} />
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* 4. Severity Donut + Scan Trend — side by side (dense) */}
+      <motion.div variants={fadeUp} initial="initial" animate="animate" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Vulnerability Severity</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-center py-4 overflow-hidden">
-              <svg viewBox="0 0 200 200" className="w-[200px] h-[200px] max-w-full shrink-0">
-                {(() => {
-                  const total = severityData.reduce((s, d) => s + d.value, 0)
-                  let cumulative = 0
-                  const radius = 80
-                  const cx = 100
-                  const cy = 100
-                  return severityData.map((d) => {
-                    const percentage = total > 0 ? d.value / total : 0
-                    const angle = percentage * 360
-                    const startAngle = (cumulative / total) * 360
-                    cumulative += d.value
-                    const startRad = ((startAngle - 90) * Math.PI) / 180
-                    const endRad = ((startAngle + angle - 90) * Math.PI) / 180
-                    const x1 = cx + radius * Math.cos(startRad)
-                    const y1 = cy + radius * Math.sin(startRad)
-                    const x2 = cx + radius * Math.cos(endRad)
-                    const y2 = cy + radius * Math.sin(endRad)
-                    const largeArc = angle > 180 ? 1 : 0
-                    if (percentage === 0) return null
-                    return (
-                      <path
-                        key={d.name}
-                        d={`M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`}
-                        fill={d.color}
-                        opacity="0.8"
-                        className="hover:opacity-100 transition-opacity"
-                      />
-                    )
-                  })
-                })()}
-                <circle cx="100" cy="100" r="50" fill="#080A14" />
-                <text x="100" y="96" textAnchor="middle" fill="#EEF0F7" fontSize="20" fontWeight="bold">
-                  {stats?.totalVulnerabilities ?? 0}
-                </text>
-                <text x="100" y="112" textAnchor="middle" fill="#5A6380" fontSize="10">
-                  Total
-                </text>
-              </svg>
-            </div>
-            <div className="space-y-2">
+            <SeverityDonutChart data={severityData.map(d => ({ name: d.name, value: d.value, color: d.color }))} />
+            <div className="space-y-2 mt-4 px-2">
               {severityData.map(d => (
                 <div key={d.name} className="flex items-center justify-between text-sm py-1">
                   <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: d.color }} />
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} />
                     <span className="text-[#5A6380]">{d.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-white tabular-nums">{d.value.toLocaleString()}</span>
                     <span className="text-xs text-[#3A4058]">
-                      ({severityTotal > 0 ? Math.round((d.value / severityTotal) * 100) : 0}%)
+                      ({severityData.reduce((s, x) => s + x.value, 0) > 0
+                        ? Math.round((d.value / severityData.reduce((s, x) => s + x.value, 0)) * 100)
+                        : 0}%)
                     </span>
                   </div>
                 </div>
@@ -188,124 +284,45 @@ export default function DashboardPage() {
             <CardTitle>Scan Trend (7 Days)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto -mx-6 px-6">
-              <div className="h-48 flex items-end justify-between gap-2 pt-4 min-w-[400px]">
-                {trendData.map((d, i) => {
-                  const height = (d.vulnerabilities / maxTrend) * 160
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                      <span className="text-xs text-[#5A6380] tabular-nums">{d.vulnerabilities}</span>
-                      <div className="w-full flex flex-col items-center gap-0.5">
-                        <div
-                          className="w-full rounded-t bg-[#00D4AA]/60 transition-all duration-300 hover:bg-[#00D4AA]/80 min-h-[4px]"
-                          style={{ height: `${Math.max(height, 4)}px` }}
-                        />
-                        <div
-                          className="w-full rounded-t bg-[#FFA502]/40 transition-all duration-300 hover:bg-[#FFA502]/60 min-h-[4px]"
-                          style={{ height: `${Math.max((d.scans / Math.max(...trendData.map(x => x.scans), 1)) * 80, 4)}px` }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-[#3A4058] mt-1">{d.date}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+            <ScanTrendChart data={trendData} />
             <div className="flex items-center justify-center gap-6 mt-4 text-xs text-[#5A6380]">
               <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded bg-[#00D4AA]/60" />
+                <span className="h-2.5 w-2.5 rounded bg-[#FFA502]" />
                 <span>Vulnerabilities</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded bg-[#FFA502]/40" />
+                <span className="h-2.5 w-2.5 rounded bg-[#00D4AA]" />
                 <span>Scans</span>
               </div>
             </div>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Monthly Vulnerability Trend</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto -mx-6 px-6">
-            <div className="h-56 flex items-end justify-between gap-3 pt-4 min-w-[500px]">
-              {monthlyData.map((d) => {
-                const cH = (d.critical / maxMonthly) * 160
-                const hH = (d.high / maxMonthly) * 160
-                const mH = (d.medium / maxMonthly) * 160
-                const lH = (d.low / maxMonthly) * 160
-                return (
-                  <div key={d.month} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="w-full space-y-[2px]">
-                      <div className="w-full rounded-t bg-[#FF4757]/60 transition-all duration-300 hover:bg-[#FF4757]/80" style={{ height: `${Math.max(cH, 2)}px` }} />
-                      <div className="w-full bg-[#FFA502]/60 transition-all duration-300 hover:bg-[#FFA502]/80" style={{ height: `${Math.max(hH, 2)}px` }} />
-                      <div className="w-full bg-[#4DA6FF]/60 transition-all duration-300 hover:bg-[#4DA6FF]/80" style={{ height: `${Math.max(mH, 2)}px` }} />
-                      <div className="w-full rounded-b bg-[#5A6380]/40 transition-all duration-300 hover:bg-[#5A6380]/60" style={{ height: `${Math.max(lH, 2)}px` }} />
-                    </div>
-                    <span className="text-[10px] text-[#3A4058] mt-1">{d.month}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-4 mt-4 text-xs text-[#5A6380]">
-            <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-[#FF4757]/60" /><span>Critical</span></div>
-            <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-[#FFA502]/60" /><span>High</span></div>
-            <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-[#4DA6FF]/60" /><span>Medium</span></div>
-            <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-[#5A6380]/40" /><span>Low</span></div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Posture Score</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center justify-center py-6">
-            <div className="relative flex items-center justify-center">
-              <svg width="180" height="180" className="-rotate-90">
-                <circle cx="90" cy="90" r={postureRadius} fill="none" stroke="#1C2150" strokeWidth="10" />
-                <circle
-                  cx="90" cy="90" r={postureRadius}
-                  fill="none" stroke={postureColor} strokeWidth="10"
-                  strokeDasharray={postureCircumference}
-                  strokeDashoffset={postureOffset}
-                  strokeLinecap="round"
-                  className="transition-all duration-1000"
-                />
-              </svg>
-              <div className="absolute flex flex-col items-center">
-                <span className="text-4xl font-bold text-white tabular-nums">{latestPostureScore}</span>
-                <span className="text-xs text-[#5A6380] mt-1">Posture Score</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
+      {/* 5. SLA / Exceptions — compact full width (breathing room) */}
+      <motion.div variants={fadeUp} initial="initial" animate="animate" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>SLA Breaches</CardTitle>
           </CardHeader>
-          <CardContent>
-            {breachedCount > 0 ? (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="h-6 w-6 text-[#FF4757]" />
-                  <div>
-                    <p className="text-sm font-medium text-[#FF4757]">{breachedCount} SLA {breachedCount === 1 ? 'breach' : 'breaches'} require attention</p>
-                    <Link href="/assignments" className="text-xs text-[#FFA502] hover:underline mt-1 inline-block">View Assignments →</Link>
-                  </div>
-                </div>
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-lg',
+                breachedCount > 0 ? 'bg-[#FF4757]/10' : 'bg-[#00D4AA]/10'
+              )}>
+                {breachedCount > 0
+                  ? <AlertTriangle className="h-5 w-5 text-[#FF4757]" />
+                  : <CheckCircle className="h-5 w-5 text-[#00D4AA]" />
+                }
               </div>
-            ) : (
-              <div className="flex items-center gap-3 py-4">
-                <CheckCircle className="h-6 w-6 text-[#00D4AA]" />
-                <p className="text-sm text-[#5A6380]">No SLA breaches</p>
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">{breachedCount}</p>
+                <p className="text-xs text-[#5A6380]">{breachedCount === 1 ? 'breach' : 'breaches'}</p>
               </div>
+            </div>
+            {breachedCount > 0 && (
+              <Link href="/assignments" className="text-sm text-[#FFA502] hover:underline">View →</Link>
             )}
           </CardContent>
         </Card>
@@ -314,28 +331,33 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle>Pending Exceptions</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between py-4">
-              <div className="flex items-center gap-3">
-                <Shield className="h-6 w-6 text-[#4DA6FF]" />
-                <div>
-                  <p className="text-2xl font-bold text-white tabular-nums">{exceptionCount}</p>
-                  <p className="text-xs text-[#5A6380]">pending</p>
-                </div>
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#4DA6FF]/10">
+                <Shield className="h-5 w-5 text-[#4DA6FF]" />
               </div>
-              <Link href="/exceptions" className="text-sm text-[#4DA6FF] hover:underline">View All →</Link>
+              <div>
+                <p className="text-xl font-bold text-white tabular-nums">{exceptionCount}</p>
+                <p className="text-xs text-[#5A6380]">pending</p>
+              </div>
             </div>
+            {exceptionCount > 0 && (
+              <Link href="/exceptions" className="text-sm text-[#4DA6FF] hover:underline">View →</Link>
+            )}
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* 6. Recent Scans + Images at Risk — side by side (dense) */}
+      <motion.div variants={fadeUp} initial="initial" animate="animate" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Recent Scans</CardTitle>
           </CardHeader>
           {scansLoading ? (
-            <CardContent><Spinner /></CardContent>
+            <CardContent><SkeletonTable rows={4} cols={2} /></CardContent>
+          ) : (scansData?.items ?? []).length === 0 ? (
+            <CardContent className="text-center py-8 text-sm text-[#5A6380]">No scans yet</CardContent>
           ) : (
             <div className="divide-y divide-[#1C2150]/50">
               {(scansData?.items ?? []).slice(0, 5).map(scan => (
@@ -361,7 +383,7 @@ export default function DashboardPage() {
             <CardTitle>Images at Risk</CardTitle>
           </CardHeader>
           {imagesLoading ? (
-            <CardContent><Spinner /></CardContent>
+            <CardContent><SkeletonTable rows={4} cols={2} /></CardContent>
           ) : (
             <div className="divide-y divide-[#1C2150]/50">
               {(imagesData?.items ?? [])
@@ -385,7 +407,7 @@ export default function DashboardPage() {
             </div>
           )}
         </Card>
-      </div>
+      </motion.div>
     </div>
   )
 }

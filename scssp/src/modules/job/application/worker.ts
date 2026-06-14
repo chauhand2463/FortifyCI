@@ -3,7 +3,7 @@ import { getPrisma } from '@shared/database/prisma';
 import { getLogger } from '@shared/utils/logger';
 import { auditService } from '@modules/audit/application/audit.service';
 import { scanImage, cancelScanProcess, getActiveScanIds } from '@shared/scanner/trivy';
-import { generateSpdxSbom, generateCycloneDxSbom, generateTrivySbom } from '@shared/sbom/generator';
+import { generateSpdxSbom, generateCycloneDxSbom, generateTrivySbom, extractPackagesFromSbom } from '@shared/sbom/generator';
 import { generatePdfReport } from '@shared/reporting/pdf';
 import { generateCsvReport } from '@shared/reporting/csv';
 import { generateJsonReport } from '@shared/reporting/json';
@@ -34,27 +34,14 @@ export async function cancelScan(scanId: string): Promise<boolean> {
 
 async function extractAndStorePackages(scanId: string, sbomJson: any): Promise<void> {
   const prisma = getPrisma();
-  const packages: { name: string; version: string; ecosystem: string; purl: string | null }[] = [];
+  const extracted = extractPackagesFromSbom(sbomJson);
 
-  const results = sbomJson.Results || [];
-  for (const result of results) {
-    const pkgs = result.Packages || [];
-    for (const pkg of pkgs) {
-      packages.push({
-        name: pkg.Name || pkg.name || '',
-        version: pkg.Version || pkg.version || '',
-        ecosystem: result.Type || pkg.Ecosystem || pkg.ecosystem || 'unknown',
-        purl: pkg.PURL || pkg.purl || null,
-      });
-    }
-  }
-
-  if (packages.length > 0) {
+  if (extracted.length > 0) {
     await prisma.package.createMany({
-      data: packages.map((p) => ({ ...p, scanId })),
+      data: extracted.map((p) => ({ name: p.name, version: p.version, ecosystem: p.ecosystem, purl: p.purl ?? null, scanId })),
       skipDuplicates: true,
     });
-    logger.info({ scanId, packageCount: packages.length }, 'Packages extracted from SBOM');
+    logger.info({ scanId, packageCount: extracted.length }, 'Packages extracted from SBOM');
   }
 }
 
@@ -76,12 +63,24 @@ async function processScanJob(job: any): Promise<void> {
     const imageRef = `${image.registry}/${image.repository}:${image.tag}`;
     logger.info({ imageRef, hasCredentials: !!image.registryCredentials }, 'Starting Trivy SBOM generation');
 
-    await prisma.scan.update({ where: { id: scanId }, data: { progress: 20 } });
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 15 } });
 
     const credentials = image.registryCredentials as { username: string; password: string; serverAddress?: string } | null;
 
-    const sbomResult = await generateTrivySbom(imageRef, 'cyclonedx', credentials);
-    const sbomJson = JSON.parse(sbomResult);
+    const sbomProgress = setInterval(async () => {
+      try {
+        const cur = await prisma.scan.findUnique({ where: { id: scanId }, select: { progress: true } });
+        const next = Math.min((cur?.progress ?? 15) + 2, 38);
+        await prisma.scan.update({ where: { id: scanId }, data: { progress: next } });
+      } catch {}
+    }, 10000);
+    let sbomJson: any;
+    try {
+      const sbomResult = await generateTrivySbom(imageRef, 'cyclonedx', credentials);
+      sbomJson = JSON.parse(sbomResult);
+    } finally {
+      clearInterval(sbomProgress);
+    }
 
     await prisma.scan.update({ where: { id: scanId }, data: { progress: 40 } });
 
@@ -104,9 +103,21 @@ async function processScanJob(job: any): Promise<void> {
     await prisma.scan.update({ where: { id: scanId }, data: { progress: 50 } });
 
     logger.info({ imageRef }, 'Starting Trivy vulnerability scan');
-    await prisma.scan.update({ where: { id: scanId }, data: { progress: 60 } });
+    await prisma.scan.update({ where: { id: scanId }, data: { progress: 55 } });
 
-    const result = await scanImage(imageRef, credentials, scanId);
+    const scanProgress = setInterval(async () => {
+      try {
+        const cur = await prisma.scan.findUnique({ where: { id: scanId }, select: { progress: true } });
+        const next = Math.min((cur?.progress ?? 55) + 2, 78);
+        await prisma.scan.update({ where: { id: scanId }, data: { progress: next } });
+      } catch {}
+    }, 15000);
+    let result: Awaited<ReturnType<typeof scanImage>>;
+    try {
+      result = await scanImage(imageRef, credentials, scanId);
+    } finally {
+      clearInterval(scanProgress);
+    }
 
     await prisma.scan.update({ where: { id: scanId }, data: { progress: 80 } });
 
@@ -340,22 +351,56 @@ async function processLiveScanJob(job: any): Promise<void> {
   const prisma = getPrisma();
 
   try {
-    await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'PULLING', progress: 10 } });
+    await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'PULLING', progress: 5 } });
 
     const { generateTrivySbom } = await import('@shared/sbom/generator');
-    const sbomResult = await generateTrivySbom(imageRef, 'cyclonedx', registryCredentials || null);
-    const sbomJson = JSON.parse(sbomResult);
+    const sbomProgress = setInterval(async () => {
+      try {
+        const cur = await prisma.liveScan.findUnique({ where: { id: liveScanId }, select: { progress: true } });
+        const next = Math.min((cur?.progress ?? 5) + 3, 35);
+        await prisma.liveScan.update({ where: { id: liveScanId }, data: { progress: next } });
+      } catch {}
+    }, 10000);
+    let sbomJson: any;
+    try {
+      const sbomResult = await generateTrivySbom(imageRef, 'cyclonedx', registryCredentials || null);
+      sbomJson = JSON.parse(sbomResult);
+    } finally {
+      clearInterval(sbomProgress);
+    }
 
     await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'SCANNING', progress: 40 } });
 
     const { scanImage } = await import('@shared/scanner/trivy');
-    const result = await scanImage(imageRef, registryCredentials || null, liveScanId);
+    const scanProgress = setInterval(async () => {
+      try {
+        const cur = await prisma.liveScan.findUnique({ where: { id: liveScanId }, select: { progress: true } });
+        const next = Math.min((cur?.progress ?? 40) + 3, 68);
+        await prisma.liveScan.update({ where: { id: liveScanId }, data: { progress: next } });
+      } catch {}
+    }, 15000);
+    let result: Awaited<ReturnType<typeof scanImage>>;
+    try {
+      result = await scanImage(imageRef, registryCredentials || null, liveScanId);
+    } finally {
+      clearInterval(scanProgress);
+    }
 
     await prisma.liveScan.update({ where: { id: liveScanId }, data: { status: 'EVALUATING', progress: 70 } });
 
     const { policyService } = await import('@modules/policy/application/policy.service');
-    const evaluation = policyId
-      ? await policyService.evaluate(result.imageId || '', policyId)
+    const [registry, ...rest] = imageRef.split('/');
+    const hasDomain = registry.includes('.') || registry === 'localhost' || registry.includes(':');
+    const fullRegistry = hasDomain ? registry : 'docker.io';
+    const repoTag = hasDomain ? rest.join('/') : imageRef;
+    const lastColon = repoTag.lastIndexOf(':');
+    const repository = lastColon > 0 ? repoTag.slice(0, lastColon) : repoTag;
+    const tag = lastColon > 0 ? repoTag.slice(lastColon + 1) : 'latest';
+    const matchedImage = await prisma.image.findFirst({
+      where: { registry: fullRegistry, repository, tag },
+    });
+    const evaluation = matchedImage && policyId
+      ? await policyService.evaluate(matchedImage.id, policyId)
       : { passed: true, reason: 'No policy evaluation', blockingCVEs: [], policyName: '' };
 
     if (evaluation.passed) {

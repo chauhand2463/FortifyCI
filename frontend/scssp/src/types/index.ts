@@ -13,6 +13,7 @@ export interface Vulnerability {
   publishedAt?: string
   source: string
   exploitAvailable?: boolean
+  epssScore?: number
   isFixed: boolean
   scanId: string
 }

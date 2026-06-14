@@ -1,0 +1,93 @@
+name: 'FortifyCI Gate'
+description: 'Gate CI/CD pipelines based on FortifyCI container scan results'
+inputs:
+  api-url:
+    description: 'FortifyCI API base URL'
+    required: true
+  api-key:
+    description: 'FortifyCI API key'
+    required: true
+  image:
+    description: 'Docker image name (e.g. myorg/myapp:latest)'
+    required: true
+  fail-on:
+    description: 'Comma-separated severities to fail on (CRITICAL, HIGH, MEDIUM, LOW)'
+    required: false
+    default: 'CRITICAL,HIGH'
+  min-score:
+    description: 'Minimum CVSS score to fail (0-10, 0 = disabled)'
+    required: false
+    default: '7'
+outputs:
+  verdict:
+    description: 'pass or fail'
+  total-vulnerabilities:
+    description: 'Total vulnerabilities found'
+  critical-count:
+    description: 'Critical severity count'
+  summary-url:
+    description: 'Link to scan summary in FortifyCI'
+runs:
+  using: 'composite'
+  steps:
+    - name: Dispatch scan to FortifyCI
+      id: scan
+      shell: bash
+      run: |
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ inputs.api-url }}/api/v1/images/scan" \
+          -H "Authorization: Bearer ${{ inputs.api-key }}" \
+          -H "Content-Type: application/json" \
+          -d '{"image": "${{ inputs.image }}"}')
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+        if [ "$HTTP_CODE" -ne 200 ] && [ "$HTTP_CODE" -ne 201 ]; then
+          echo "::error::Scan dispatch failed (HTTP $HTTP_CODE): $BODY"
+          exit 1
+        fi
+        SCAN_ID=$(echo "$BODY" | jq -r '.data.id // .id // empty')
+        echo "scan-id=$SCAN_ID" >> $GITHUB_OUTPUT
+        echo "Scan dispatched: ${{ inputs.image }} → $SCAN_ID"
+
+    - name: Wait for scan completion
+      id: wait
+      shell: bash
+      run: |
+        SCAN_ID="${{ steps.scan.outputs.scan-id }}"
+        if [ -z "$SCAN_ID" ]; then
+          echo "::error::No scan ID returned"
+          exit 1
+        fi
+        MAX_RETRIES=120
+        DELAY=10
+        for i in $(seq 1 $MAX_RETRIES); do
+          RESPONSE=$(curl -s "${{ inputs.api-url }}/api/v1/scans/$SCAN_ID" \
+            -H "Authorization: Bearer ${{ inputs.api-key }}")
+          STATUS=$(echo "$RESPONSE" | jq -r '.data.status // .status // ""')
+          if [ "$STATUS" = "completed" ]; then
+            echo "Scan completed"
+            echo "total-vulnerabilities=$(echo "$RESPONSE" | jq -r '.data.summary.total // 0')" >> $GITHUB_OUTPUT
+            echo "critical-count=$(echo "$RESPONSE" | jq -r '.data.summary.critical // 0')" >> $GITHUB_OUTPUT
+            break
+          fi
+          if [ "$STATUS" = "failed" ]; then
+            echo "::error::Scan failed"
+            exit 1
+          fi
+          sleep $DELAY
+        done
+
+    - name: Evaluate gate
+      id: evaluate
+      shell: bash
+      run: |
+        SCAN_ID="${{ steps.scan.outputs.scan-id }}"
+        RESPONSE=$(curl -s "${{ inputs.api-url }}/api/v1/policies/evaluate?scanId=$SCAN_ID" \
+          -H "Authorization: Bearer ${{ inputs.api-key }}")
+        VERDICT=$(echo "$RESPONSE" | jq -r '.verdict // .data.verdict // "pass"')
+        echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+        echo "summary-url=${{ inputs.api-url }}/scans/$SCAN_ID" >> $GITHUB_OUTPUT
+        if [ "$VERDICT" = "fail" ]; then
+          echo "::error::FortifyCI gate failed — vulnerabilities exceed policy threshold"
+          exit 1
+        fi
+        echo "::notice::FortifyCI gate passed"

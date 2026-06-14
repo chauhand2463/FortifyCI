@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { User } from '@/types'
-import { services } from '@/services/api'
+import { services, transformUser } from '@/services/api'
 
 let _token: string | null = null
 let _refreshPromise: Promise<string | null> | null = null
@@ -62,7 +62,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         if (res.ok) {
           const body = await res.json()
           set({
-            user: body.data,
+            user: transformUser(body.data),
             isAuthenticated: true,
             initialized: true,
           })

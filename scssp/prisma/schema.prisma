@@ -441,6 +441,7 @@ model ScanPolicy {
   description      String?
   blockOnCritical  Boolean  @default(true)
   blockOnHigh      Boolean  @default(false)
+  blockOnlyFixable Boolean  @default(true)
   maxHighCount     Int      @default(0)
   maxMediumCount   Int      @default(-1)
   slaCriticalDays  Int      @default(7)

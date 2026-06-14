@@ -125,6 +125,7 @@ function transformVulnerability(b: any): Vulnerability {
     publishedAt: b.publishedDate || b.publishedAt || undefined,
     source: b.source || 'trivy',
     exploitAvailable: b.exploitAvailable ?? undefined,
+    epssScore: b.epssScore ?? undefined,
     isFixed: !!(b.fixedVersion || b.fixVersion),
     scanId: b.scanId,
   }
@@ -149,7 +150,7 @@ function transformReport(b: any): Report {
   }
 }
 
-function transformUser(b: any): User {
+export function transformUser(b: any): User {
   return { id: b.id, email: b.email, name: b.username, role: b.role.toLowerCase(), permissions: b.permissions || [], avatar: b.avatar || null }
 }
 
@@ -264,10 +265,19 @@ export const services = {
     await apiRequest(`/api/v1/scans/${id}/cancel`, { method: 'POST' })
   },
 
-  async getVulnerabilities(page = 1, limit = 20, severity?: string, search?: string) {
-    const qs = `page=${page}&limit=${limit}${severity && severity !== 'all' ? `&severity=${severity.toUpperCase()}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`
+  async getVulnerabilities(page = 1, limit = 20, severity?: string, search?: string, fixable?: boolean, epssMin?: number) {
+    let qs = `page=${page}&limit=${limit}`
+    if (severity && severity !== 'all') qs += `&severity=${severity.toUpperCase()}`
+    if (search) qs += `&search=${encodeURIComponent(search)}`
+    if (fixable !== undefined) qs += `&fixable=${fixable}`
+    if (epssMin !== undefined && epssMin > 0) qs += `&epssMin=${epssMin}`
     const body = await apiRequest<{ success: boolean; items: any[]; total: number; page: number; limit: number; totalPages: number }>(`/api/v1/vulnerabilities?${qs}`)
     return { items: body.items.map(transformVulnerability), total: body.total, page: body.page, limit: body.limit, totalPages: body.totalPages }
+  },
+
+  async searchSBOMPackages(q: string, page = 1, limit = 50) {
+    const body = await apiRequest<{ success: boolean; items: any[]; total: number }>(`/api/v1/sboms/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`)
+    return body
   },
 
   async getVulnerability(id: string) {

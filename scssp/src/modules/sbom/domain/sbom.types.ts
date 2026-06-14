@@ -18,6 +18,17 @@ export const sbomQuerySchema = z.object({
 export type CreateSbomDto = z.infer<typeof createSbomSchema>;
 export type SbomQueryDto = z.infer<typeof sbomQuerySchema>;
 
+export interface PackageSearchResult {
+  id: string;
+  name: string;
+  version: string;
+  ecosystem: string;
+  purl: string | null;
+  scanId: string;
+  imageRef: string;
+  imageName: string;
+}
+
 export interface SbomResponse {
   id: string;
   format: string;

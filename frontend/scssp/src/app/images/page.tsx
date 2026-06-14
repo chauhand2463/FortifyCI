@@ -9,7 +9,7 @@ import { StatusDot } from '@/components/ui/status-dot'
 import { Spinner, ErrorState, Pagination } from '@/components/ui/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { formatDate } from '@/lib/utils'
+import { formatDate, cn } from '@/lib/utils'
 import Link from 'next/link'
 import { RegisterImageModal } from '@/components/images/register-image-modal'
 import { Search, Container, Plus, ScanSearch, RefreshCw, Loader2, ScanLine } from 'lucide-react'
@@ -20,6 +20,8 @@ export default function ImagesPage() {
   const [search, setSearch] = useState('')
   const [registerOpen, setRegisterOpen] = useState(false)
   const [quickScanInput, setQuickScanInput] = useState('')
+  const [severityFilter, setSeverityFilter] = useState('')
+  const [registryFilter, setRegistryFilter] = useState('')
   const { data, isLoading, error, refetch } = useImages(page, 10, search)
   const createScan = useCreateScan()
   const registerImage = useRegisterImage()
@@ -115,6 +117,40 @@ export default function ImagesPage() {
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline">Register</span>
           </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-[#5A6380] uppercase tracking-wider">Severity</span>
+          <div className="flex gap-1">
+            {['', 'critical', 'high', 'medium', 'low'].map(s => (
+              <button
+                key={s}
+                onClick={() => setSeverityFilter(s)}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium rounded-md border transition-all duration-200',
+                  severityFilter === s
+                    ? 'bg-[#00D4AA]/10 text-[#00D4AA] border-[#00D4AA]/20'
+                    : 'text-[#5A6380] border-[#1C2150] hover:border-[#2A2F5A] hover:text-[#9098B8]'
+                )}
+              >
+                {s || 'All'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-[#5A6380] uppercase tracking-wider">Registry</span>
+          <input
+            placeholder="Filter registry..."
+            className={cn(
+              'h-7 w-36 rounded-md border border-[#1C2150] bg-[#0D1022] px-2 text-xs text-[#EEF0F7]',
+              'placeholder:text-[#3A4058] focus:outline-none focus:border-[#00D4AA]/50 transition-colors'
+            )}
+            value={registryFilter}
+            onChange={e => setRegistryFilter(e.target.value)}
+          />
         </div>
       </div>
 
