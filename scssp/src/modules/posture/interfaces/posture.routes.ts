@@ -9,7 +9,7 @@ export async function postureRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: result };
   });
 
-  app.get('/image/:imageId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { imageId: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { imageId: string } }>('/image/:imageId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const result = await postureService.getImageHistory(request.params.imageId);
     return { success: true, data: result };
   });

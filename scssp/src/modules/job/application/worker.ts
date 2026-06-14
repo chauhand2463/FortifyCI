@@ -175,7 +175,7 @@ async function processScanJob(job: any): Promise<void> {
     const scanDiff = await prisma.scanDiff.findUnique({ where: { scanId } });
     const isRegression = scanDiff?.regressionDetected || false;
 
-    if (isRegression) {
+    if (isRegression && scanDiff) {
       await webhookService.deliverEvent('scan.regression_detected', {
         scanId,
         imageRef,

@@ -11,12 +11,12 @@ export async function liveScanRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(202).send({ success: true, data: result });
   });
 
-  app.get('/:id', { preHandler: [authenticate, authorize('LIVE_SCAN_CREATE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('LIVE_SCAN_CREATE')] }, async (request, reply) => {
     const result = await liveScanService.findById(request.params.id);
     return { success: true, data: result };
   });
 
-  app.get('/:id/events', { preHandler: [authenticate, authorize('LIVE_SCAN_CREATE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string } }>('/:id/events', { preHandler: [authenticate, authorize('LIVE_SCAN_CREATE')] }, async (request, reply) => {
     const scan = await liveScanService.findById(request.params.id);
     if (!scan) throw new ValidationError('Live scan not found');
 

@@ -29,12 +29,12 @@ export async function assignmentRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: result };
   });
 
-  app.get('/:id', { preHandler: [authenticate, authorize('VULNERABILITY_ASSIGN')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('VULNERABILITY_ASSIGN')] }, async (request, reply) => {
     const result = await assignmentService.findById(request.params.id);
     return { success: true, data: result };
   });
 
-  app.patch('/:id/status', { preHandler: [authenticate, authorize('VULNERABILITY_ASSIGN')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.patch<{ Params: { id: string } }>('/:id/status', { preHandler: [authenticate, authorize('VULNERABILITY_ASSIGN')] }, async (request, reply) => {
     const body = request.body as any;
     if (!body.status) throw new ValidationError('status is required');
     const result = await assignmentService.updateStatus(request.params.id, body, request.user!.userId);

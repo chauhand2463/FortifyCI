@@ -145,7 +145,7 @@ export function extractPackagesFromSbom(sbomJson: any): SbomPackage[] {
             }
           }
         }
-        packages.push({ name, version, ecosystem: 'spdx', purl });
+        packages.push({ name, version, ecosystem: 'spdx', purl: purl ?? undefined });
       }
     }
   }

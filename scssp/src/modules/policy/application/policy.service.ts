@@ -171,7 +171,7 @@ export class PolicyService {
     const imageExceptionCves = new Set(activeExceptions.filter(e => e.imageId === imageId).map(e => e.cveId));
     const exceptedCves = new Set([...globalExceptionCves, ...imageExceptionCves]);
 
-    function isBlockable(v: typeof vulns[0]): boolean {
+    const isBlockable = (v: (typeof vulns)[0]): boolean => {
       if (exceptedCves.has(v.vulnerabilityId)) return false;
       if (policy.blockOnlyFixable) return !!v.fixedVersion;
       return true;
@@ -183,7 +183,7 @@ export class PolicyService {
 
     if (policy.blockOnCritical && criticalCount > 0) {
       vulns.filter((v) => v.severity === 'CRITICAL' && isBlockable(v)).forEach((v) => {
-        blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion });
+        blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: (v.pkgName || v.packageName) ?? undefined, fixedVersion: v.fixedVersion ?? undefined });
       });
     }
 
@@ -191,14 +191,14 @@ export class PolicyService {
       const threshold = policy.maxHighCount >= 0 ? policy.maxHighCount : 0;
       if (highCount > threshold) {
         vulns.filter((v) => v.severity === 'HIGH' && isBlockable(v)).forEach((v) => {
-          blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion });
+          blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: (v.pkgName || v.packageName) ?? undefined, fixedVersion: v.fixedVersion ?? undefined });
         });
       }
     }
 
     if (policy.maxMediumCount >= 0 && mediumCount > policy.maxMediumCount) {
       vulns.filter((v) => v.severity === 'MEDIUM' && isBlockable(v)).slice(0, policy.maxMediumCount === 0 ? mediumCount : 5).forEach((v) => {
-        blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: v.pkgName || v.packageName, fixedVersion: v.fixedVersion });
+        blocking.push({ vulnerabilityId: v.vulnerabilityId, severity: v.severity, pkgName: (v.pkgName || v.packageName) ?? undefined, fixedVersion: v.fixedVersion ?? undefined });
       });
     }
 
@@ -228,7 +228,7 @@ export class PolicyService {
     });
     const exceptedCves = new Set(activeExceptions.map(e => e.cveId));
 
-    function isBlockable(v: (typeof vulns)[0]): boolean {
+    const isBlockable = (v: (typeof vulns)[0]): boolean => {
       if (exceptedCves.has(v.vulnerabilityId)) return false;
       if (policy.blockOnlyFixable) return !!v.fixedVersion;
       return true;

@@ -16,22 +16,22 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: result };
   });
 
-  app.get('/:id', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request, reply) => {
     const result = await webhookService.findById(request.params.id);
     return { success: true, data: result };
   });
 
-  app.patch('/:id', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.patch<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request, reply) => {
     const result = await webhookService.update(request.params.id, request.body as any, request.user!.userId);
     return { success: true, data: result };
   });
 
-  app.delete('/:id', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.delete<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request, reply) => {
     await webhookService.delete(request.params.id, request.user!.userId);
     return { success: true };
   });
 
-  app.post('/:id/test', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.post<{ Params: { id: string } }>('/:id/test', { preHandler: [authenticate, authorize('WEBHOOK_MANAGE')] }, async (request, reply) => {
     const result = await webhookService.sendTest(request.params.id);
     return { success: true, data: result };
   });

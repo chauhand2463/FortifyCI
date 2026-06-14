@@ -14,32 +14,32 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: result };
   });
 
-  app.get('/:id', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const result = await policyService.findById(request.params.id);
     return { success: true, data: result };
   });
 
-  app.patch('/:id', { preHandler: [authenticate, authorize('POLICY_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.patch<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('POLICY_MANAGE')] }, async (request, reply) => {
     const result = await policyService.update(request.params.id, request.body as any, request.user!.userId);
     return { success: true, data: result };
   });
 
-  app.delete('/:id', { preHandler: [authenticate, authorize('POLICY_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.delete<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('POLICY_MANAGE')] }, async (request, reply) => {
     await policyService.delete(request.params.id, request.user!.userId);
     return { success: true };
   });
 
-  app.post('/:id/set-default', { preHandler: [authenticate, authorize('POLICY_MANAGE')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.post<{ Params: { id: string } }>('/:id/set-default', { preHandler: [authenticate, authorize('POLICY_MANAGE')] }, async (request, reply) => {
     const result = await policyService.setDefault(request.params.id, request.user!.userId);
     return { success: true, data: result };
   });
 
-  app.get('/:id/evaluate/:imageId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { id: string; imageId: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string; imageId: string } }>('/:id/evaluate/:imageId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const result = await policyService.evaluate(request.params.imageId, request.params.id);
     return { success: true, data: result };
   });
 
-  app.get('/evaluate/:imageId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { imageId: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { imageId: string } }>('/evaluate/:imageId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const result = await policyService.evaluate(request.params.imageId);
     return { success: true, data: result };
   });

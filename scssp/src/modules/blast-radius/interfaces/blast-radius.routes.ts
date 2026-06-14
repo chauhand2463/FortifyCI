@@ -4,21 +4,21 @@ import { authenticate, authorize } from '@shared/middleware/auth';
 import { ValidationError } from '@shared/errors';
 
 export async function blastRadiusRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/cve/:cveId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { cveId: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { cveId: string } }>('/cve/:cveId', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const { cveId } = request.params;
     if (!cveId) throw new ValidationError('CVE ID is required');
     const result = await blastRadiusService.findByCve(cveId);
     return { success: true, data: result };
   });
 
-  app.get('/package/:packageName', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { packageName: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { packageName: string } }>('/package/:packageName', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const { packageName } = request.params;
     if (!packageName) throw new ValidationError('Package name is required');
     const result = await blastRadiusService.findByPackage(packageName);
     return { success: true, data: result };
   });
 
-  app.post('/cve/:cveId/rescan', { preHandler: [authenticate, authorize('SCAN_CREATE')] }, async (request: FastifyRequest<{ Params: { cveId: string } }>, reply: FastifyReply) => {
+  app.post<{ Params: { cveId: string } }>('/cve/:cveId/rescan', { preHandler: [authenticate, authorize('SCAN_CREATE')] }, async (request, reply) => {
     const { cveId } = request.params;
     if (!cveId) throw new ValidationError('CVE ID is required');
     const result = await blastRadiusService.bulkRescan(cveId, request.user!.userId);

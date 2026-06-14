@@ -22,17 +22,17 @@ export async function exceptionRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: result.items, total: result.total };
   });
 
-  app.get('/:id', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.get<{ Params: { id: string } }>('/:id', { preHandler: [authenticate, authorize('VULNERABILITY_READ')] }, async (request, reply) => {
     const result = await exceptionService.findById(request.params.id);
     return { success: true, data: result };
   });
 
-  app.post('/:id/approve', { preHandler: [authenticate, authorize('VULNERABILITY_EXCEPTION')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.post<{ Params: { id: string } }>('/:id/approve', { preHandler: [authenticate, authorize('VULNERABILITY_EXCEPTION')] }, async (request, reply) => {
     const result = await exceptionService.approve(request.params.id, request.user!.userId);
     return { success: true, data: result };
   });
 
-  app.post('/:id/revoke', { preHandler: [authenticate, authorize('VULNERABILITY_EXCEPTION')] }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  app.post<{ Params: { id: string } }>('/:id/revoke', { preHandler: [authenticate, authorize('VULNERABILITY_EXCEPTION')] }, async (request, reply) => {
     const result = await exceptionService.revoke(request.params.id, request.user!.userId);
     return { success: true, data: result };
   });
